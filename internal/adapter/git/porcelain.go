@@ -1,0 +1,213 @@
+package git
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/nekogravitycat/gits/internal/app"
+	"github.com/nekogravitycat/gits/internal/domain"
+)
+
+// parseStatus reads `git status --porcelain=v2 --branch` output.
+//
+// porcelain=v2 is git's documented, stable machine interface, and one call yields the branch, the
+// upstream, the ahead/behind pair and every changed file at once (spec §10). Parsing the
+// human-facing output instead would be both slower and fragile.
+//
+// The format, one record per line:
+//
+//	# branch.oid <sha> | (initial)
+//	# branch.head <branch> | (detached)
+//	# branch.upstream <upstream>
+//	# branch.ab +<ahead> -<behind>
+//	1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>                       ordinary change
+//	2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><TAB><orig> rename or copy
+//	u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>             unmerged
+//	? <path>                                                            untracked
+func parseStatus(out string) app.RepoObservation {
+	// Clean until a record proves otherwise. A submodule that matches its gitlink produces no
+	// status record at all, so the absence of evidence really is evidence of cleanliness here.
+	obs := app.RepoObservation{SubmodulesClean: true}
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "# "):
+			parseHeader(line, &obs)
+		case strings.HasPrefix(line, "? "):
+			obs.Dirty.Untracked++
+		case strings.HasPrefix(line, "! "):
+			// Ignored files are not a change; git only lists them when asked to.
+		case strings.HasPrefix(line, "1 "), strings.HasPrefix(line, "2 "), strings.HasPrefix(line, "u "):
+			obs.Dirty.Tracked++
+			noteSubmodule(line, &obs)
+		}
+	}
+	return obs
+}
+
+func parseHeader(line string, obs *app.RepoObservation) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return
+	}
+	switch fields[1] {
+	case "branch.oid":
+		if fields[2] != "(initial)" {
+			obs.Head = fields[2]
+		}
+	case "branch.head":
+		// A branch named "(detached)" is not possible, so this sentinel is unambiguous.
+		if fields[2] == "(detached)" {
+			obs.Detached = true
+			return
+		}
+		obs.Branch = fields[2]
+	case "branch.upstream":
+		obs.Upstream = fields[2]
+	case "branch.ab":
+		// "+12 -3": ahead of upstream by 12, behind by 3.
+		if len(fields) < 4 {
+			return
+		}
+		obs.Ahead = parseSigned(fields[2])
+		obs.Behind = parseSigned(fields[3])
+	}
+}
+
+// noteSubmodule records whether a changed entry is a submodule that has drifted from its gitlink.
+//
+// The <sub> field is four characters: "N..." for an ordinary path, or "S<c><m><u>" for a
+// submodule, where c means the checked-out commit differs from the recorded gitlink, m means
+// modified content and u means untracked content.
+//
+// Any of the three makes the worktree disagree with what the repo has committed -- which is the
+// exact mismatch that makes a build's output not match its gitlinks (spec §7.2, §7.3).
+func noteSubmodule(line string, obs *app.RepoObservation) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return
+	}
+	sub := fields[2]
+	if len(sub) != 4 || sub[0] != 'S' {
+		return
+	}
+	obs.HasSubmodules = true
+	if sub[1] != '.' || sub[2] != '.' || sub[3] != '.' {
+		obs.SubmodulesClean = false
+	}
+}
+
+// parseSigned reads git's "+12" / "-3" counts as a magnitude.
+func parseSigned(s string) int {
+	s = strings.TrimPrefix(strings.TrimPrefix(s, "+"), "-")
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// parseGitmodules reads a .gitmodules file into submodule entries.
+//
+// It is parsed directly rather than through `git config -f`: .gitmodules is a plain, committed
+// file, and reading it needs no subprocess. The URL is what identifies the dependency; the path
+// deliberately is not, since most dependents name the same submodule "proto" (spec §7.11).
+func parseGitmodules(content string) []domain.Submodule {
+	var subs []domain.Submodule
+	var current *domain.Submodule
+
+	flush := func() {
+		if current != nil && current.Path != "" {
+			subs = append(subs, *current)
+		}
+		current = nil
+	}
+
+	for _, raw := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+
+		if strings.HasPrefix(line, "[") {
+			flush()
+			if name, ok := sectionName(line); ok {
+				current = &domain.Submodule{Name: name}
+			}
+			continue
+		}
+		if current == nil {
+			continue
+		}
+
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "path":
+			current.Path = value
+		case "url":
+			current.URL = value
+		case "branch":
+			// The dependent's own statement about which line it tracks. It outranks every other
+			// baseline rule, because a repo pinned to the branch it declared is correct, not
+			// outdated (spec §7.11).
+			current.Branch = value
+		}
+	}
+	flush()
+	return subs
+}
+
+// sectionName extracts "name" from a `[submodule "name"]` header.
+func sectionName(line string) (string, bool) {
+	inner := strings.TrimSuffix(strings.TrimPrefix(line, "["), "]")
+	kind, rest, found := strings.Cut(inner, " ")
+	if !found || strings.ToLower(strings.TrimSpace(kind)) != "submodule" {
+		return "", false
+	}
+	return strings.Trim(strings.TrimSpace(rest), `"`), true
+}
+
+// parseLsTree extracts gitlink SHAs from `git ls-tree -r HEAD`, keyed by path.
+//
+// The gitlink is the commit a repo has committed for its submodule -- the pin itself. Reading it
+// from the tree rather than from the checked-out submodule matters: the worktree may be sitting on
+// something else entirely, and the pin is what other machines will get.
+func parseLsTree(out string) map[string]string {
+	pins := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		// "<mode> <type> <object>\t<path>"
+		meta, path, found := strings.Cut(line, "\t")
+		if !found {
+			continue
+		}
+		fields := strings.Fields(meta)
+		if len(fields) < 3 || fields[1] != "commit" {
+			continue
+		}
+		pins[strings.TrimSpace(path)] = fields[2]
+	}
+	return pins
+}
+
+// parseAheadBehind reads `git rev-list --left-right --count a...b`, which prints "<left>\t<right>".
+func parseAheadBehind(out string) (ahead, behind int) {
+	fields := strings.Fields(out)
+	if len(fields) < 2 {
+		return 0, 0
+	}
+	ahead, _ = strconv.Atoi(fields[0])
+	behind, _ = strconv.Atoi(fields[1])
+	return ahead, behind
+}
