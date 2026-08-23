@@ -129,3 +129,14 @@ func AnyFailed(results []RepoResult) bool {
 	}
 	return false
 }
+
+// inRepo renders a shell command scoped to a repo.
+//
+// The workspace root repo has path ".", and "cd . && git ..." is noise that makes a hint read like
+// boilerplate rather than something to paste. For the root, the command alone is already correct.
+func inRepo(path, command string) string {
+	if path == "" || path == domain.RootPath {
+		return command
+	}
+	return "cd " + path + " && " + command
+}

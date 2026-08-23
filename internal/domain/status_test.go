@@ -163,17 +163,40 @@ func TestSummarize(t *testing.T) {
 		{State: domain.StateDiverged},
 	}
 	got := domain.Summarize(statuses, 2)
-	want := domain.Summary{Total: 9, Clean: 2, Dirty: 1, Ahead: 1, Behind: 1, Missing: 1, Failed: 2, Skipped: 2}
+	want := domain.Summary{
+		Total: 9, Clean: 2, Dirty: 1, Ahead: 1, Behind: 1, Missing: 1,
+		Attention: 1, Failed: 2, Skipped: 2,
+	}
 	if got != want {
 		t.Errorf("Summarize() = %+v, want %+v", got, want)
 	}
 }
 
+// Every repo has to land in exactly one bucket. A state that falls through the tally disappears
+// from the report, and a summary whose parts do not add up to its total is one nobody trusts.
+func TestSummarize_EveryStateIsCounted(t *testing.T) {
+	all := []domain.RepoState{
+		domain.StateClean, domain.StateDirty, domain.StateAhead, domain.StateBehind,
+		domain.StateDiverged, domain.StateDetached, domain.StateNoUpstream,
+		domain.StateMissing, domain.StateNotARepo, domain.StateError,
+	}
+	statuses := make([]domain.RepoStatus, 0, len(all))
+	for _, st := range all {
+		statuses = append(statuses, domain.RepoStatus{State: st})
+	}
+
+	s := domain.Summarize(statuses, 0)
+	counted := s.Clean + s.Dirty + s.Ahead + s.Behind + s.Missing + s.Attention + s.Failed
+	if counted != s.Total {
+		t.Errorf("buckets sum to %d but total is %d: %+v", counted, s.Total, s)
+	}
+}
+
 func TestSummary_Attention(t *testing.T) {
-	if (domain.Summary{Total: 3, Clean: 3}).Attention() {
+	if (domain.Summary{Total: 3, Clean: 3}).NeedsAttention() {
 		t.Error("an all-clean run must not report attention")
 	}
-	if !(domain.Summary{Total: 3, Clean: 2, Behind: 1}).Attention() {
+	if !(domain.Summary{Total: 3, Clean: 2, Behind: 1}).NeedsAttention() {
 		t.Error("a behind repo must report attention")
 	}
 }

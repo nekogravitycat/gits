@@ -215,3 +215,22 @@ func TestManifest_Groups(t *testing.T) {
 		}
 	}
 }
+
+// `gits init` records a repo whose origin it could not determine, leaving url blank with a to-do
+// comment (spec §7.7). That entry has to load: a manifest its own author cannot read back would
+// make init produce a broken workspace.
+func TestManifest_Validate_BlankURLPlaceholderLoads(t *testing.T) {
+	m := manifest(domain.Repo{Name: "workspace", Path: ".", URL: "", URLDeclared: true, Line: 5})
+	if err := m.Validate("gits.yaml"); err != nil {
+		t.Fatalf("Validate() = %v, want nil for a declared-but-blank url", err)
+	}
+}
+
+// An entry with no url key at all is still a structural error.
+func TestManifest_Validate_AbsentURLKeyIsAnError(t *testing.T) {
+	m := manifest(domain.Repo{Name: "a", Line: 5})
+	err := m.Validate("gits.yaml")
+	if err == nil || !strings.Contains(err.Error(), "url") {
+		t.Fatalf("Validate() = %v, want a missing-url error", err)
+	}
+}

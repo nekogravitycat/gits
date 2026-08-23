@@ -100,5 +100,5 @@ func (r *UpResult) Attention() bool {
 	if r.Status.Deps != nil && r.Status.Deps.Any() {
 		return true
 	}
-	return r.Status.Summary.Attention()
+	return r.Status.Summary.NeedsAttention()
 }

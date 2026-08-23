@@ -28,6 +28,17 @@ type SyncResult struct {
 	Summary domain.Summary
 }
 
+// Failed reports whether any repo operation failed, including the root repo's own sync.
+//
+// The root is checked explicitly because it is not part of Repos: leaving it out would let the
+// one repo whose failure invalidates the whole run exit 0.
+func (r *SyncResult) Failed() bool {
+	if r.Root != nil && r.Root.Failed() {
+		return true
+	}
+	return AnyFailed(r.Repos)
+}
+
 // Sync brings every selected repo up to date (spec §7.3).
 //
 // The strategy is deliberately timid: never touch uncommitted work, never create a conflict.
@@ -71,11 +82,12 @@ func syncRootFirst(ctx context.Context, env *Env, g Global, opts SyncOptions, m 
 
 	if out.Action != ActionUpdated {
 		if out.Action == ActionSkipped || out.Action == ActionFailed {
-			// Never carry on silently with a list that may be stale. The user needs to know that
-			// a repo added elsewhere might simply be absent from this run (spec §7.1 step 2).
+			// Never carry on silently with a list that may be stale: a repo added on the other
+			// machine may simply be absent from this run (spec §7.1 step 2).
+			//
+			// Recorded as a flag rather than logged here, so that each renderer surfaces it once
+			// -- the human report as a warning line, the JSON payload as manifestStale.
 			res.ManifestStale = true
-			env.Log.Warnf("repo list may be stale: the workspace root repo could not be updated (%s: %s)",
-				out.Code, out.Message)
 		}
 		return m
 	}
@@ -83,7 +95,7 @@ func syncRootFirst(ctx context.Context, env *Env, g Global, opts SyncOptions, m 
 	reloaded, err := env.LoadManifest()
 	if err != nil {
 		res.ManifestStale = true
-		env.Log.Warnf("repo list may be stale: reloading %s after sync failed: %v", ManifestName, err)
+		env.Log.Verbosef("reloading %s after syncing the root repo failed: %v", ManifestName, err)
 		return m
 	}
 	return reloaded
@@ -160,13 +172,13 @@ func syncRepo(ctx context.Context, env *Env, g Global, opts SyncOptions, m *doma
 	case obs.Detached:
 		out.Action, out.Code = ActionSkipped, domain.ErrDetached
 		out.Message = "HEAD is detached"
-		out.Hint = "cd " + out.Path + " && git switch " + m.EffectiveBranch(r)
+		out.Hint = inRepo(out.Path, "git switch "+m.EffectiveBranch(r))
 		return out
 
 	case obs.Upstream == "":
 		out.Action, out.Code = ActionSkipped, domain.ErrNoUpstream
 		out.Message = "branch has no upstream"
-		out.Hint = "cd " + out.Path + " && git push -u " + m.EffectiveRemote(r) + " " + obs.Branch
+		out.Hint = inRepo(out.Path, "git push -u "+m.EffectiveRemote(r)+" "+obs.Branch)
 		return out
 
 	case obs.Ahead > 0 && obs.Behind > 0:
@@ -174,7 +186,7 @@ func syncRepo(ctx context.Context, env *Env, g Global, opts SyncOptions, m *doma
 		out.Message = fmt.Sprintf("diverged: ahead %d, behind %d", obs.Ahead, obs.Behind)
 		// A concrete command, not "needs manual attention": the user should not have to work out
 		// the rebase target themselves (spec §7.3 step 4).
-		out.Hint = "cd " + out.Path + " && git rebase " + obs.Upstream
+		out.Hint = inRepo(out.Path, "git rebase "+obs.Upstream)
 		return out
 
 	case obs.Behind == 0:
@@ -207,7 +219,7 @@ func syncRepo(ctx context.Context, env *Env, g Global, opts SyncOptions, m *doma
 			out.Action = ActionFailed
 			out.Code = CodeOf(err)
 			out.Message = "fast-forwarded, but submodule update failed: " + MessageOf(err)
-			out.Hint = "cd " + out.Path + " && git submodule update --init --recursive"
+			out.Hint = inRepo(out.Path, "git submodule update --init --recursive")
 		}
 	}
 	return out

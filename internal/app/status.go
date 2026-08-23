@@ -188,15 +188,15 @@ func annotate(st *domain.RepoStatus) {
 	case domain.StateDetached:
 		st.Code = domain.ErrDetached
 		st.Message = "HEAD is detached"
-		st.Hint = "cd " + st.Path + " && git switch " + st.DefaultBranch
+		st.Hint = inRepo(st.Path, "git switch "+st.DefaultBranch)
 	case domain.StateNoUpstream:
 		st.Code = domain.ErrNoUpstream
 		st.Message = "branch has no upstream"
-		st.Hint = "cd " + st.Path + " && git push -u origin " + st.Branch
+		st.Hint = inRepo(st.Path, "git push -u origin "+st.Branch)
 	case domain.StateDiverged:
 		st.Code = domain.ErrDiverged
 		st.Message = "diverged from upstream"
-		st.Hint = "cd " + st.Path + " && git rebase " + st.Upstream
+		st.Hint = inRepo(st.Path, "git rebase "+st.Upstream)
 	case domain.StateClean, domain.StateDirty, domain.StateAhead, domain.StateBehind,
 		domain.StateMissing, domain.StateNotARepo, domain.StateError:
 		// Either healthy, or already annotated where the condition was detected.

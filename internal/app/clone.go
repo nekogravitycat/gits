@@ -56,6 +56,14 @@ func CloneOf(ctx context.Context, env *Env, g Global, opts CloneOptions, m *doma
 			continue
 		}
 		if !exists {
+			if r.URL == "" {
+				// `gits init` writes an entry with a blank url when a repo has no origin, marked
+				// as a to-do. Say so plainly instead of handing git an empty argument.
+				res.Repos = append(res.Repos, skip(r, domain.ErrManifest,
+					"manifest entry has no url",
+					"gits add "+r.Name+" --url <url> --update"))
+				continue
+			}
 			missing = append(missing, r)
 			continue
 		}

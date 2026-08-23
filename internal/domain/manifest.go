@@ -36,6 +36,15 @@ type Repo struct {
 	NoWrite     bool
 	Description string
 
+	// URLDeclared records that the entry carried a url key, even an empty one.
+	//
+	// The distinction is what lets `gits init` do what §7.7 requires -- write an entry for a repo
+	// whose origin could not be determined, with the url left blank and marked as a to-do --
+	// without producing a manifest that its own validator then rejects. A missing key is a
+	// structural error; a blank value is an unfinished entry, and only the commands that actually
+	// need a URL complain about it.
+	URLDeclared bool
+
 	// Line is the 1-based line the entry starts on, used to point at the offending entry in
 	// E_MANIFEST diagnostics (spec §5.6). Zero when the entry did not come from a file.
 	Line int
@@ -185,7 +194,7 @@ func (m *Manifest) Validate(file string) error {
 		if r.Name == "" {
 			return fail(r.Line, "repo entry is missing required field 'name'")
 		}
-		if r.URL == "" {
+		if !r.URLDeclared && r.URL == "" {
 			return fail(r.Line, "repo %q is missing required field 'url'", r.Name)
 		}
 		if prev, dup := names[r.Name]; dup {

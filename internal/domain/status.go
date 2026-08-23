@@ -134,12 +134,20 @@ type Summary struct {
 	Missing int
 	Failed  int
 	Skipped int
+
+	// Attention counts repos that are neither healthy nor a failure of gits: a detached HEAD, a
+	// branch with no upstream, a divergence.
+	//
+	// The spec's summary list does not name a bucket for these, but without one the counts do not
+	// add up to Total -- a repo simply vanishes from the tally. A report whose numbers cannot be
+	// reconciled is one nobody trusts, so they are counted here and named in the summary line.
+	Attention int
 }
 
-// Attention reports whether anything in the run warrants the `--exit-code` value 3 (spec §6.10):
-// nothing failed, but something is not up to date.
-func (s Summary) Attention() bool {
-	return s.Dirty > 0 || s.Ahead > 0 || s.Behind > 0 || s.Missing > 0
+// NeedsAttention reports whether anything in the run warrants the --exit-code value 3
+// (spec §6.10): nothing failed, but something is not up to date.
+func (s Summary) NeedsAttention() bool {
+	return s.Dirty > 0 || s.Ahead > 0 || s.Behind > 0 || s.Missing > 0 || s.Attention > 0
 }
 
 // Summarize tallies statuses into the run summary, honouring the no-write downgrade.
@@ -160,8 +168,7 @@ func Summarize(statuses []RepoStatus, skipped int) Summary {
 		case StateError, StateNotARepo:
 			sum.Failed++
 		case StateDetached, StateNoUpstream, StateDiverged:
-			// Reported on the repo's own line with its code; these are neither clean nor a
-			// failure of gits, so they stay out of the headline tally.
+			sum.Attention++
 		}
 	}
 	return sum

@@ -113,13 +113,13 @@ func planPush(m *domain.Manifest, r domain.Repo, st domain.RepoStatus, opts Push
 	case domain.StateDetached:
 		out.Action, out.Code = ActionSkipped, domain.ErrDetached
 		out.Message = "HEAD is detached"
-		out.Hint = "cd " + out.Path + " && git switch " + m.EffectiveBranch(r)
+		out.Hint = inRepo(out.Path, "git switch "+m.EffectiveBranch(r))
 		return out
 
 	case domain.StateDiverged:
 		out.Action, out.Code = ActionSkipped, domain.ErrDiverged
 		out.Message = fmt.Sprintf("diverged (ahead %d, behind %d)", st.Ahead, st.Behind)
-		out.Hint = "cd " + out.Path + " && git rebase " + st.Upstream
+		out.Hint = inRepo(out.Path, "git rebase "+st.Upstream)
 		return out
 
 	case domain.StateNoUpstream:
