@@ -1,0 +1,15 @@
+# Normalise line endings so a checkout behaves the same on Windows and Linux.
+* text=auto eol=lf
+
+# These are executed rather than read, and CRLF breaks them outright: /bin/sh rejects a shebang
+# line ending in CR, and make treats a trailing CR as part of the recipe.
+.githooks/* text eol=lf
+*.sh        text eol=lf
+Makefile    text eol=lf
+
+# Go tooling assumes LF; gofmt would otherwise fight the checkout on every file.
+*.go   text eol=lf
+*.mod  text eol=lf
+*.sum  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf

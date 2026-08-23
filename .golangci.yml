@@ -1,0 +1,76 @@
+# Lint gate for gits. Enforced by .githooks/pre-commit over the whole module, not just staged files.
+version: "2"
+
+run:
+  timeout: 5m
+  # Adapter tests that spawn a real git binary sit behind this tag; lint them too, or they rot
+  # silently until someone runs `make test-integration`.
+  build-tags:
+    - integration
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - exhaustive       # RepoState/ErrCode switches are the core of the spec's priority tables.
+    - gocritic
+    - goconst
+    - misspell
+    - nilerr
+    - noctx
+    - perfsprint
+    - predeclared
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    errcheck:
+      # Deferred Close on a read-only handle and best-effort stderr writes are the only ignores.
+      exclude-functions:
+        - (io.Closer).Close
+    revive:
+      rules:
+        - name: exported
+          disabled: true      # Doc comments are reviewed by humans; the linter's version is noise.
+        - name: package-comments
+          disabled: true
+    goconst:
+      min-occurrences: 4
+      ignore-tests: true
+    gocritic:
+      disabled-checks:
+        - ifElseChain         # The spec's state tables read better as explicit if/else ladders.
+
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      # Table-driven tests routinely carry long literal blocks; length/dupl style checks there
+      # produce churn without finding defects.
+      - path: _test\.go
+        linters:
+          - goconst
+          - unparam
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/nekogravitycat/gits
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

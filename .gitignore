@@ -1,0 +1,11 @@
+# Build output
+/bin/
+/dist/
+coverage.out
+
+# Local workspace override — never shared between machines (spec §5.5)
+gits.local.yaml
+
+# Editor / OS noise
+.DS_Store
+*.swp
