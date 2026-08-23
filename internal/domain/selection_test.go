@@ -120,10 +120,10 @@ func TestSelect_PreservesManifestOrder(t *testing.T) {
 func TestUnknownSelectors(t *testing.T) {
 	m := workspace()
 	got := m.UnknownSelectors(domain.Filter{
-		Repos:    []string{"drawer-tool", "roulete-drawer"},
+		Repos:    []string{"drawer-tool", "drawer-tol"},
 		Excludes: []string{"nope", "nope"},
 	})
-	want := []string{"nope", "roulete-drawer"}
+	want := []string{"drawer-tol", "nope"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("UnknownSelectors() = %v, want %v", got, want)
 	}

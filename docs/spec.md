@@ -8,7 +8,7 @@
 
 ## 1. 背景與問題
 
-開發者在一個工作目錄底下同時維護十幾個彼此相依的 git repo（本文件以 `example-workspace` 這個 workspace 為第一個實例：18 個 repo，橫跨兩個遊戲專案、共用的平台服務、以及唯讀的參考專案）。這種「多重 repo」工作流有五個反覆出現的痛點：
+開發者在一個工作目錄底下同時維護十幾個彼此相依的 git repo（本文件以 `example-workspace` 這個 workspace 為第一個實例：18 個 repo，橫跨兩個遊戲專案、共用的平台服務、以及唯讀的參考專案。文中所有 workspace、repo、網域與路徑名稱皆為代稱，數字與現象則取自實際觀測）。這種「多重 repo」工作流有五個反覆出現的痛點：
 
 1. **換機器接續工作**：在公司與家裡兩台電腦之間切換，每次都得逐一 `cd` 進去 `git pull`。漏掉一個，就在舊程式碼上開始工作。
 2. **不知道自己漏了什麼**：一次改動橫跨多個 repo 之後，很難確認是不是每個都 commit、每個都 push 了。未推送的 commit 往往要等到另一台機器發現「怎麼沒有這段」時才浮現。
@@ -103,17 +103,17 @@ repos:
   # 根 repo：workspace 目錄自己也是一個 repo，存放共用文件與清單本身
   - name: workspace
     path: "."
-    url: https://git.example.com/gravity/workspace.git
+    url: https://git.example.com/platform/workspace.git
     groups: [workspace]
     description: workspace 自身（文件、CLAUDE.md、gits.yaml）
 
   - name: game-server
     url: https://git.example.com/game/game-server.git
     groups: [game]
-    description: 核心輪盤遊戲伺服器
+    description: 核心遊戲伺服器
 
   - name: vendor-sdk
-    url: https://git.example.com/gravity/vendor-sdk.git
+    url: https://git.example.com/platform/vendor-sdk.git
     groups: [platform]
     no-write: true            # 他人擁有：不 commit、不 push、不 foreach
 
@@ -242,8 +242,8 @@ overrides:
 {
   "schemaVersion": 1,
   "command": "status",
-  "workspace": "C:/Users/gravity/Documents/Repositories/example-workspace",
-  "manifestPath": "C:/Users/gravity/Documents/Repositories/example-workspace/gits.yaml",
+  "workspace": "C:/Users/you/Repositories/example-workspace",
+  "manifestPath": "C:/Users/you/Repositories/example-workspace/gits.yaml",
   "network": false,
   "stale": true,
   "repos": [
@@ -457,15 +457,15 @@ v1 提供十二個指令，但**日常只需要記兩個動詞**：
 **預設不依群組分組**，照 manifest 順序印出——因為 repo 可多重歸屬群組（例如 `shared-proto` 同時屬於 `platform` 與 `proto`），分組會造成重複列出或需要武斷地挑一個。要分組時用 `--by-group`，該模式下允許同一個 repo 出現在多個群組底下。
 
 ```
-workspace: C:\Users\gravity\Documents\Repositories\example-workspace  (18 repos)
+workspace: C:\Users\you\Repositories\example-workspace  (18 repos)
 
-  ✓ .                                main       (workspace root)
-  ✓ game-server   main
-  ↓ drawer-tool                  main       behind 2
-  ● client-cli              main       uncommitted 1 (docker/compose.yaml)
-  ● vendor-sdk         main       uncommitted 1 (go.mod)         [no-write]
-  ⚠ shared-proto                  feature/arcade-proto   (default is main)
-  ✗ stack-tools                   —          directory does not exist (E_MISSING_DIR)
+  ✓ .              main                   (workspace root)
+  ✓ game-server    main
+  ↓ drawer-tool    main                   behind 2
+  ● client-cli     main                   uncommitted 1 (docker/compose.yaml)
+  ● vendor-sdk     main                   uncommitted 1 (go.mod)     [no-write]
+  ⚠ shared-proto   feature/arcade-proto   (default is main)
+  ✗ stack-tools    —                      directory does not exist (E_MISSING_DIR)
     → gits clone -r stack-tools
   ...
 
@@ -536,13 +536,13 @@ data may be stale (offline); add --fetch for live status
 
 ```
 Will push 2 repos:
-  drawer-tool                 main → origin/main    3 commits
-  arcade-server              main → origin/main    1 commit
+  drawer-tool      main → origin/main    3 commits
+  arcade-server    main → origin/main    1 commit
 
 Skipped:
-  vendor-sdk        no-write
-  client-cli             diverged (ahead 1, behind 2) (E_DIVERGED)
-                                  → cd client-cli && git rebase origin/main
+  vendor-sdk       no-write
+  client-cli       diverged (ahead 1, behind 2) (E_DIVERGED)
+                   → cd client-cli && git rebase origin/main
 
 Continue? [y/N]
 ```
@@ -740,13 +740,13 @@ submodule 的**路徑名稱不可作為配對依據**（實測 8 個叫 `proto`�
 ```
 shared-proto  (canonical: ./shared-proto, baseline origin/main @ a1b2c3d)
 
-  ✓ arcade-server                 a1b2c3d   up to date
-  ↓ game-server     ca3426c   behind 3
-  ↓ drawer-tool                    ca3426c   behind 3
-  ↓ drawer                             8de0f2a   behind 18
-  ⚠ arcade-client-cli                   d2b1fb2   diverged: ahead 3, behind 3
-                                                 (baseline is its declared feature/arcade-proto)
-  ? stress-tool                     0011223   commit not found in canonical, try --fetch
+  ✓ arcade-server        a1b2c3d   up to date
+  ↓ game-server          ca3426c   behind 3
+  ↓ drawer-tool          ca3426c   behind 3
+  ↓ arcade-drawer        8de0f2a   behind 18
+  ⚠ arcade-client-cli    d2b1fb2   diverged: ahead 3, behind 3
+                                   (baseline is its declared feature/arcade-proto)
+  ? stress-tool          0011223   commit not found in canonical, try --fetch
 
 9 repos depend on shared-proto, pinned to 7 different commits
 ```

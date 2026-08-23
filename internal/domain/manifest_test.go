@@ -205,7 +205,7 @@ func TestManifest_Groups(t *testing.T) {
 		domain.Repo{Name: "b", URL: "u", Path: "b", Groups: []string{"game", "platform"}},
 	)
 	got := m.Groups()
-	want := []string{"platform", "proto", "game"}
+	want := []string{"game", "platform", "proto"}
 	if len(got) != len(want) {
 		t.Fatalf("Groups() = %v, want %v", got, want)
 	}
