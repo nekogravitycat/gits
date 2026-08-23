@@ -164,7 +164,7 @@ func TestSummarize(t *testing.T) {
 	}
 	got := domain.Summarize(statuses, 2)
 	want := domain.Summary{
-		Total: 9, Clean: 2, Dirty: 1, Ahead: 1, Behind: 1, Missing: 1,
+		Total: 11, Clean: 2, Dirty: 1, Ahead: 1, Behind: 1, Missing: 1,
 		Attention: 1, Failed: 2, Skipped: 2,
 	}
 	if got != want {
@@ -185,8 +185,8 @@ func TestSummarize_EveryStateIsCounted(t *testing.T) {
 		statuses = append(statuses, domain.RepoStatus{State: st})
 	}
 
-	s := domain.Summarize(statuses, 0)
-	counted := s.Clean + s.Dirty + s.Ahead + s.Behind + s.Missing + s.Attention + s.Failed
+	s := domain.Summarize(statuses, 2)
+	counted := s.Clean + s.Dirty + s.Ahead + s.Behind + s.Missing + s.Attention + s.Failed + s.Skipped
 	if counted != s.Total {
 		t.Errorf("buckets sum to %d but total is %d: %+v", counted, s.Total, s)
 	}
@@ -220,5 +220,18 @@ func TestErrCode_Retryable(t *testing.T) {
 		if c.Retryable() {
 			t.Errorf("%s must not be retryable", c)
 		}
+	}
+}
+
+// Repos held back by a boundary still count toward the total: the user selected them, and a
+// summary whose parts do not reconcile with its own total is one nobody trusts.
+func TestSummarize_ExcludedReposCountTowardTheTotal(t *testing.T) {
+	statuses := []domain.RepoStatus{{State: domain.StateClean}, {State: domain.StateClean}}
+	s := domain.Summarize(statuses, 3)
+	if s.Total != 5 {
+		t.Errorf("Total = %d, want 5 (2 inspected + 3 excluded)", s.Total)
+	}
+	if s.Clean+s.Skipped != s.Total {
+		t.Errorf("buckets sum to %d but total is %d", s.Clean+s.Skipped, s.Total)
 	}
 }

@@ -19,6 +19,15 @@ func NormalizeURL(raw string) string {
 		return ""
 	}
 
+	// A local path on Windows is checked first, because "C:/repos/proto.git" otherwise looks
+	// exactly like scp syntax and would be read as host "C" with path "/repos/proto.git" --
+	// producing an identity that matches nothing and reads as nonsense in a report.
+	if isWindowsPath(s) {
+		p := strings.ReplaceAll(s, `\`, "/")
+		p = strings.ToLower(p[:2]) + strings.TrimSuffix(strings.TrimRight(p[2:], "/"), ".git")
+		return strings.TrimRight(p, "/")
+	}
+
 	if idx := strings.Index(s, "://"); idx >= 0 {
 		s = s[idx+3:]
 		s = stripCredentials(s)
@@ -67,4 +76,37 @@ func stripCredentials(s string) string {
 func SameRepoURL(a, b string) bool {
 	na, nb := NormalizeURL(a), NormalizeURL(b)
 	return na != "" && na == nb
+}
+
+// isWindowsPath reports whether s looks like a drive-letter path such as "C:/repos/x" or
+// `C:\repos\x`.
+//
+// The check requires a separator after the colon, which is what distinguishes it from scp syntax:
+// "C:/repos/x" is a path, while "host:repos/x" is a remote.
+func isWindowsPath(s string) bool {
+	if len(s) < 3 || s[1] != ':' {
+		return false
+	}
+	c := s[0]
+	if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+		return false
+	}
+	return s[2] == '/' || s[2] == '\\'
+}
+
+// DisplayName derives a short, human-readable label for a repository URL: its last path segment
+// without the ".git" suffix.
+//
+// It is used only where no manifest entry exists to supply a real name -- a dependency the
+// workspace does not contain. The full URL is always reported alongside, since a basename alone is
+// not unique.
+func DisplayName(rawURL string) string {
+	normalized := NormalizeURL(rawURL)
+	if normalized == "" {
+		return rawURL
+	}
+	if idx := strings.LastIndex(normalized, "/"); idx >= 0 && idx+1 < len(normalized) {
+		return normalized[idx+1:]
+	}
+	return normalized
 }

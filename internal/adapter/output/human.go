@@ -335,11 +335,11 @@ func (h *Human) depGroupHeader(g domain.DepGroup) {
 		h.printf(")\n\n")
 		return
 	}
-	h.printf("%s  (%s)\n", h.style.Bold(g.Name), h.style.Dim("no canonical checkout in this workspace"))
-	if g.Message != "" {
-		h.printf("  %s\n", g.Message)
-	}
-	h.printf("\n")
+	// g.Message repeats the "no canonical checkout" clause for the benefit of JSON callers, who
+	// have no header line. Here the header already said it, and the closing tally gives the
+	// disagreement count, so printing it again would just be noise.
+	h.printf("%s  %s\n", h.style.Bold(g.Name), h.style.Dim("(no canonical checkout in this workspace)"))
+	h.printf("  %s\n\n", h.style.Dim(g.URL))
 }
 
 func (h *Human) pinLine(p domain.Pin, g domain.DepGroup, width int) {
@@ -577,13 +577,16 @@ func indent(s, prefix string) string {
 // "1 different commits" reads as a bug in the tool rather than a fact about the workspace, and the
 // single-commit case deserves the clearer phrasing anyway: agreement is the good outcome.
 func dependencyTally(g domain.DepGroup) string {
-	distinct := g.DistinctSHAs()
-	if distinct == 1 {
-		return fmt.Sprintf("%s depend on %s, all pinned to the same commit",
-			plural(len(g.Pins), "repo", "repos"), g.Name)
+	verb := "depend on"
+	if len(g.Pins) == 1 {
+		verb = "depends on"
 	}
-	return fmt.Sprintf("%s depend on %s, pinned to %d different commits",
-		plural(len(g.Pins), "repo", "repos"), g.Name, distinct)
+	if g.DistinctSHAs() == 1 {
+		return fmt.Sprintf("%s %s %s, all pinned to the same commit",
+			plural(len(g.Pins), "repo", "repos"), verb, g.Name)
+	}
+	return fmt.Sprintf("%s %s %s, pinned to %d different commits",
+		plural(len(g.Pins), "repo", "repos"), verb, g.Name, g.DistinctSHAs())
 }
 
 func plural(n int, one, many string) string {

@@ -168,7 +168,16 @@ func DeriveVerdict(ahead, behind int) PinVerdict {
 	}
 }
 
-// SortGroups orders dependency groups by name so output is deterministic across runs and machines.
+// SortGroups orders dependency groups deterministically across runs and machines.
+//
+// URL breaks ties: a group with no canonical checkout is named after its URL's last segment, and
+// two different dependencies can share one. Without the tiebreak their order would depend on map
+// iteration, and two runs of the same command would not diff cleanly (spec §6.5 rule 2).
 func SortGroups(groups []DepGroup) {
-	sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].Name != groups[j].Name {
+			return groups[i].Name < groups[j].Name
+		}
+		return groups[i].URL < groups[j].URL
+	})
 }

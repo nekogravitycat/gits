@@ -284,13 +284,33 @@ func (grp *depGroup) finish() {
 	// Saying so explicitly matters more than looking complete: a caller acting on a partial
 	// verdict as though it were the whole answer is precisely what this code prevents (§7.11).
 	g := grp.group
+
+	// The group was keyed by normalised URL, which is the right identity but a poor label. With no
+	// manifest entry to supply a real name, the URL's last segment is what a person actually calls
+	// this repo; the full URL travels alongside so the label never has to be unique on its own.
+	g.Name = domain.DisplayName(g.URL)
+
 	g.Code = domain.ErrNoCanonical
-	g.Message = fmt.Sprintf("%d repos pinned to %d different commits; no canonical checkout in this workspace",
-		len(g.Pins), g.DistinctSHAs())
-	g.Hint = "add " + g.Name + " to the workspace for a complete determination"
+	g.Message = fmt.Sprintf("%s pinned to %s; no canonical checkout in this workspace",
+		countOf(len(g.Pins), "repo", "repos"),
+		countOf(g.DistinctSHAs(), "commit", "different commits"))
+	g.Hint = "gits add " + g.Name + " --url " + g.URL + "   # then: gits clone -r " + g.Name
+
 	for i := range g.Pins {
 		if g.Pins[i].Verdict == "" {
 			g.Pins[i].Verdict = domain.PinUnknown
 		}
+		if g.Pins[i].Message == "" {
+			g.Pins[i].Message = "no canonical checkout to compare against"
+		}
 	}
+}
+
+// countOf renders a count with the right noun form. "1 different commits" reads as a defect in the
+// tool rather than a fact about the workspace.
+func countOf(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }

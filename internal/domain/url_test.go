@@ -66,3 +66,53 @@ func TestSameRepoURL(t *testing.T) {
 		t.Error("empty URLs must not be reported as the same repo")
 	}
 }
+
+// A local path on Windows must not be read as scp syntax. "C:/repos/proto.git" parsed that way
+// becomes host "C" with path "/repos/proto.git", which matches nothing and reads as nonsense.
+func TestNormalizeURL_WindowsLocalPath(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{`C:\repos\proto.git`, "c:/repos/proto"},
+		{"C:/repos/proto.git", "c:/repos/proto"},
+		{"c:/repos/proto", "c:/repos/proto"},
+		{`D:\work\a\b.git`, "d:/work/a/b"},
+	}
+	for _, tt := range tests {
+		if got := domain.NormalizeURL(tt.in); got != tt.want {
+			t.Errorf("NormalizeURL(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// The two spellings of one local path are the same repository.
+func TestNormalizeURL_WindowsSeparatorsAgree(t *testing.T) {
+	if !domain.SameRepoURL(`C:\repos\proto.git`, "C:/repos/proto") {
+		t.Error("backslash and forward-slash spellings of one path should match")
+	}
+}
+
+// A host:path remote still parses as a remote, not as a drive letter.
+func TestNormalizeURL_ScpSyntaxIsNotMistakenForADrive(t *testing.T) {
+	if got := domain.NormalizeURL("host:repos/proto.git"); got != "host/repos/proto" {
+		t.Errorf("NormalizeURL() = %q, want host/repos/proto", got)
+	}
+}
+
+func TestDisplayName(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"https://git.example.com/game/shared-proto.git", "shared-proto"},
+		{"ssh://git@host:24/a/b.git", "b"},
+		{`C:\repos\proto.git`, "proto"},
+		{"https://host", "host"},
+	}
+	for _, tt := range tests {
+		if got := domain.DisplayName(tt.in); got != tt.want {
+			t.Errorf("DisplayName(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

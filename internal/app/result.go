@@ -100,20 +100,28 @@ func retryHint(code domain.ErrCode, name string) string {
 }
 
 // SummarizeResults tallies write results for the run summary.
-func SummarizeResults(results []RepoResult, skipped int) domain.Summary {
-	sum := domain.Summary{Total: len(results), Skipped: skipped}
+//
+// excluded counts repos the write boundary kept out of the run entirely (no-write). They are part
+// of the total because the user selected them, and they land in the skipped bucket.
+//
+// Every repo lands in exactly one bucket: clean + missing + skipped + failed == total. A repo
+// counted twice, or not at all, produces a summary whose parts do not reconcile with its own
+// total, and a report that cannot be reconciled is one nobody trusts.
+func SummarizeResults(results []RepoResult, excluded int) domain.Summary {
+	sum := domain.Summary{Total: len(results) + excluded, Skipped: excluded}
 	for _, r := range results {
 		switch r.Action {
 		case ActionFailed:
 			sum.Failed++
 		case ActionSkipped:
-			sum.Skipped++
+			// "Missing" is the more specific answer, so it replaces the generic skip rather than
+			// adding to it.
 			if r.Code == domain.ErrMissingDir {
 				sum.Missing++
+			} else {
+				sum.Skipped++
 			}
-		case ActionUpdated, ActionPlanned:
-			sum.Clean++
-		case ActionUpToDate:
+		case ActionUpdated, ActionPlanned, ActionUpToDate:
 			sum.Clean++
 		}
 	}

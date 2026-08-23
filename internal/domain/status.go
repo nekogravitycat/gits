@@ -151,8 +151,11 @@ func (s Summary) NeedsAttention() bool {
 }
 
 // Summarize tallies statuses into the run summary, honouring the no-write downgrade.
-func Summarize(statuses []RepoStatus, skipped int) Summary {
-	sum := Summary{Total: len(statuses), Skipped: skipped}
+//
+// excluded counts repos a boundary kept out of the run. They count toward the total because the
+// user selected them, so that the buckets always reconcile with it.
+func Summarize(statuses []RepoStatus, excluded int) Summary {
+	sum := Summary{Total: len(statuses) + excluded, Skipped: excluded}
 	for _, st := range statuses {
 		switch st.SummaryState() {
 		case StateClean:
