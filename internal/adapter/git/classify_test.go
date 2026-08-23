@@ -120,6 +120,11 @@ func TestClassify_NetworkIsRetryableAndAuthIsNot(t *testing.T) {
 }
 
 func TestHardenedEnv(t *testing.T) {
+	// Isolate from whatever the ambient environment has: some git clients (e.g. GitKraken) set
+	// GIT_SSH_COMMAND themselves before spawning hooks, which would otherwise make this test's
+	// outcome depend on which tool ran it rather than on hardenedEnv() itself.
+	t.Setenv("GIT_SSH_COMMAND", "")
+
 	env := hardenedEnv()
 	// Each of these is what stops git opening its own prompt and hanging a non-interactive run.
 	want := []string{
