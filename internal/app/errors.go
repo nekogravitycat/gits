@@ -100,9 +100,66 @@ func MessageOf(err error) string {
 	}
 	var ge *GitError
 	if errorsAs(err, &ge) && ge.Stderr != "" {
-		return firstLine(ge.Stderr)
+		return summaryLine(ge.Stderr)
+	}
+	// Msg, not Error(): an *Error that wraps the cause its own message was built from would
+	// otherwise render as "reason: reason".
+	var ae *Error
+	if errorsAs(err, &ae) && ae.Msg != "" {
+		return firstLine(ae.Msg)
 	}
 	return firstLine(err.Error())
+}
+
+// progressPrefixes are lines git writes while working, which say nothing about why it failed.
+var progressPrefixes = []string{
+	"Cloning into",
+	"Receiving objects",
+	"Resolving deltas",
+	"Counting objects",
+	"Compressing objects",
+	"Unpacking objects",
+	"Updating files",
+	"Submodule ",
+	"warning:",
+	"hint:",
+}
+
+// summaryLine picks the one line of git stderr worth showing in a report.
+//
+// The first line is the wrong choice: a failed clone opens with "Cloning into 'x'..." and only
+// says what went wrong on the second line. Reporting the progress banner as the reason leaves the
+// reader with no idea what happened, so the "fatal:" line is preferred over position.
+func summaryLine(stderr string) string {
+	var candidates []string
+	for _, raw := range strings.Split(stderr, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || hasAnyPrefix(line, progressPrefixes) {
+			continue
+		}
+		candidates = append(candidates, line)
+	}
+	if len(candidates) == 0 {
+		return firstLine(stderr)
+	}
+
+	for _, prefix := range []string{"fatal:", "error:"} {
+		for _, line := range candidates {
+			if strings.HasPrefix(line, prefix) {
+				return line
+			}
+		}
+	}
+	return candidates[0]
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Usagef builds a usage error (exit 2) with the given code.

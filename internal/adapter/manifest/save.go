@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -245,7 +246,49 @@ func encodeAndWrite(path string, doc *yaml.Node) error {
 	if err := enc.Close(); err != nil {
 		return &app.Error{Code: domain.ErrManifest, Msg: "cannot encode " + path, Exit: app.ExitUsage, Err: err}
 	}
-	return writeFileAtomic(path, buf.Bytes())
+	return writeFileAtomic(path, spaceSections(buf.Bytes()))
+}
+
+// spaceSections puts a blank line back before each top-level section.
+//
+// yaml.v3 keeps comments on its nodes but has nowhere to record blank lines, so a round trip
+// collapses the file into one dense block. The comments survive -- which is the guarantee that
+// matters -- but a manifest listing eighteen repos becomes markedly harder to read, and §5.1 asks
+// for the formatting to survive too.
+//
+// Rather than trying to remember where the blank lines were, this re-imposes the layout gits
+// writes in the first place: one blank line before a top-level key, and one before a comment block
+// that starts a new section. Entry-level comments are left alone, since those belong tight to
+// their entry.
+func spaceSections(data []byte) []byte {
+	lines := strings.Split(string(data), "\n")
+	out := make([]string, 0, len(lines)+8)
+
+	for i, line := range lines {
+		if i > 0 && startsSection(line) && needsBlankBefore(lines[i-1]) {
+			out = append(out, "")
+		}
+		out = append(out, line)
+	}
+	return []byte(strings.Join(out, "\n"))
+}
+
+// startsSection reports whether a line begins a new top-level section: an unindented key, or an
+// unindented comment introducing one.
+func startsSection(line string) bool {
+	if line == "" || strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+		return false
+	}
+	return true
+}
+
+// needsBlankBefore reports whether the previous line should be followed by a blank one.
+//
+// A comment immediately above a key documents that key, so the two stay together; the blank line
+// goes above the comment instead.
+func needsBlankBefore(prev string) bool {
+	trimmed := strings.TrimSpace(prev)
+	return trimmed != "" && !strings.HasPrefix(trimmed, "#")
 }
 
 // writeFileAtomic writes through a temporary file in the same directory, then renames.

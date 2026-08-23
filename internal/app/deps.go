@@ -202,6 +202,15 @@ func baselineFor(m *domain.Manifest, grp *depGroup, dependent string) (string, d
 	return domain.DefaultBranch, domain.BaselineDefaults
 }
 
+// shortSHA abbreviates a commit for display. Seven characters is git's own default and stays
+// unambiguous in any repo of ordinary size.
+func shortSHA(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
 // comparePin judges one pinned SHA against its baseline, entirely offline.
 func comparePin(ctx context.Context, env *Env, dir string, pin *domain.Pin) {
 	if pin.SHA == "" {
@@ -248,7 +257,9 @@ func comparePin(ctx context.Context, env *Env, dir string, pin *domain.Pin) {
 		if branches, berr := env.Git.BranchContains(ctx, dir, pin.SHA); berr == nil {
 			pin.ContainingBranches = branches
 		}
-		pin.Hint = "cd " + pin.SubmodulePath + " && git log --oneline " + pin.BaselineRef + ".." + pin.SHA
+		// The short SHA keeps the hint pasteable on one line; git resolves it just as well.
+		pin.Hint = "cd " + pin.SubmodulePath + " && git log --oneline " +
+			pin.BaselineRef + ".." + shortSHA(pin.SHA)
 	case domain.PinBehind:
 		pin.Message = fmt.Sprintf("behind %d", behind)
 	case domain.PinAhead:

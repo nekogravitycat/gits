@@ -312,8 +312,7 @@ func (h *Human) Deps(groups []domain.DepGroup) {
 			h.pinLine(p, g, width)
 		}
 
-		h.printf("\n%d repos depend on %s, pinned to %d different commits\n",
-			len(g.Pins), g.Name, g.DistinctSHAs())
+		h.printf("\n%s\n", dependencyTally(g))
 		if g.Hint != "" {
 			h.printf("  %s %s\n", h.style.Dim("->"), g.Hint)
 		}
@@ -429,6 +428,17 @@ func (h *Human) Foreach(res *app.ForeachResult) {
 		if o.Truncated {
 			h.printf("  %s\n", h.style.Dim("(output truncated at 8KB)"))
 		}
+	}
+
+	// Named rather than silently dropped. foreach cannot tell a read from a write -- the command
+	// is opaque to it -- so it treats every run as a write and leaves no-write repos out. The
+	// reader has to be able to see that the scope was narrower than their filter implied (§7.12).
+	if len(res.Skipped) > 0 {
+		h.printf("\n%s\n", h.style.Bold("Skipped:"))
+		for _, e := range res.Skipped {
+			h.printf("  %s %s  (%s)\n", h.style.Dim("-"), e.Repo.Name, e.Code)
+		}
+		h.printf("  %s\n", h.style.Dim("add --include-no-write to run in these too"))
 	}
 }
 
@@ -560,4 +570,25 @@ func indent(s, prefix string) string {
 		lines[i] = prefix + l
 	}
 	return strings.Join(lines, "\n")
+}
+
+// dependencyTally is the closing line of a dependency group.
+//
+// "1 different commits" reads as a bug in the tool rather than a fact about the workspace, and the
+// single-commit case deserves the clearer phrasing anyway: agreement is the good outcome.
+func dependencyTally(g domain.DepGroup) string {
+	distinct := g.DistinctSHAs()
+	if distinct == 1 {
+		return fmt.Sprintf("%s depend on %s, all pinned to the same commit",
+			plural(len(g.Pins), "repo", "repos"), g.Name)
+	}
+	return fmt.Sprintf("%s depend on %s, pinned to %d different commits",
+		plural(len(g.Pins), "repo", "repos"), g.Name, distinct)
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
