@@ -544,6 +544,41 @@ func (j *JSON) Add(res *app.AddResult) error {
 	})
 }
 
+type formattedFileDoc struct {
+	File      string   `json:"file"`
+	Entries   int      `json:"entries"`
+	Changed   bool     `json:"changed"`
+	Reordered []string `json:"reordered,omitempty"`
+}
+
+type formatDoc struct {
+	header
+	Changed bool               `json:"changed"`
+	Files   []formattedFileDoc `json:"files"`
+}
+
+// Format writes a fmt payload.
+//
+// The top-level changed is the field a hook branches on -- false means every file was already
+// canonical and nothing was written, true under dryRun means something would have been. The
+// per-file breakdown is there for a caller that cares which one it was.
+func (j *JSON) Format(res *app.FormatResult) error {
+	doc := formatDoc{
+		header:  j.header("fmt", res.DryRun),
+		Changed: res.Changed(),
+		Files:   make([]formattedFileDoc, 0, len(res.Files)),
+	}
+	for _, f := range res.Files {
+		doc.Files = append(doc.Files, formattedFileDoc{
+			File:      f.File,
+			Entries:   f.Entries,
+			Changed:   f.Changed,
+			Reordered: f.Reordered,
+		})
+	}
+	return j.write(doc)
+}
+
 type errorDoc struct {
 	header
 	Error errorPayload `json:"error"`

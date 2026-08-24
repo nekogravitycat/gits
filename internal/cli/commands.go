@@ -375,6 +375,45 @@ func newAddCommand(ctx context.Context, newRuntime runtimeFactory, setExit exitS
 	return cmd
 }
 
+func newFmtCommand(ctx context.Context, newRuntime runtimeFactory, setExit exitSetter) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "fmt",
+		Aliases: []string{"format"},
+		Short:   "Rewrite the manifest files in canonical form",
+		Long: "fmt sorts the entries by name, puts a blank line between them and orders each\n" +
+			"entry's fields the same way. Comments are preserved and travel with their entry.\n\n" +
+			"It formats gits.yaml, and gits.local.yaml when this machine has one -- same shape,\n" +
+			"same conventions, so there is only one to learn.\n\n" +
+			"The sort is not cosmetic for the shared list: entries in name order are what lets two\n" +
+			"machines add repos independently and have git merge the result without help. Every\n" +
+			"gits write already produces this layout, so fmt is for the file someone edited by hand.\n\n" +
+			"It rewrites nothing that is already canonical, so it is safe to run from a hook. Pair\n" +
+			"--dry-run with --exit-code for a check that reports instead of writing.",
+		Example: "  gits fmt\n" +
+			"  gits fmt --dry-run --exit-code   # exit 3 if a manifest needs formatting",
+		Run: func(cmd *cobra.Command, _ []string) {
+			run(ctx, newRuntime, setExit, cmd, "fmt", true, func(ctx context.Context, rt *Runtime) error {
+				res, err := app.Format(ctx, rt.Env, rt.Global)
+				if err != nil {
+					return err
+				}
+				if rt.Global.JSON {
+					if err := rt.JSON.Format(res); err != nil {
+						return err
+					}
+				} else {
+					rt.Human.Format(res)
+				}
+				// Nothing here can fail a repo operation. A file that still needs formatting is
+				// exactly what exit 3 is for: nothing broke, something wants attention (spec §6.10).
+				finish(rt, setExit, false, res.Changed() && res.DryRun)
+				return nil
+			})
+		},
+	}
+	return cmd
+}
+
 func newListCommand(ctx context.Context, newRuntime runtimeFactory, setExit exitSetter) *cobra.Command {
 	var (
 		names  bool

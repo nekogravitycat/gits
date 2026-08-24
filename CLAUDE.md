@@ -99,7 +99,14 @@ promises.
 11. **`gits` is the only writer of `gits.yaml`.** Writes go through the yaml.v3 Node API so comments
     and formatting survive, and new entries are inserted in `name` order — appending guarantees a
     merge conflict when two machines each add a repo (§10.1).
-12. **All user-facing text is English**, regardless of locale, including JSON `message`/`hint`.
+12. **One canonical layout, declared once.** The `layout` values in
+    `internal/adapter/manifest/format.go` are the single description of how each manifest file is
+    laid out — `manifestLayout` for `gits.yaml`, `localLayout` for `gits.local.yaml` — and
+    `Create` (text), `AddRepo` (nodes) and `fmt` all have to produce it. yaml.v3 cannot record blank
+    lines, so `spaceSections` re-imposes them on every write rather than trying to remember them.
+    `TestFormat_IsNoOpOnWhatGitsWrites` is what keeps the three writers in step: if it fails, one of
+    them drifted, and every `gits add` would leave the file wanting a `gits fmt`.
+13. **All user-facing text is English**, regardless of locale, including JSON `message`/`hint`.
     Agents match on those strings. Only user-authored manifest fields (like `description`) may be in
     any language (§6.4).
 

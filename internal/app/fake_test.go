@@ -292,6 +292,14 @@ type fakeStore struct {
 	added   []domain.Repo
 	created *domain.Manifest
 	loadErr error
+
+	// unformatted stands in for a manifest that is not in canonical form; formatted counts the
+	// Format calls, so a test can prove --dry-run still left the file alone.
+	unformatted bool
+	formatted   int
+
+	// hasLocal stands in for a machine that carries a gits.local.yaml.
+	hasLocal bool
 }
 
 func (s *fakeStore) Load(string) (*domain.Manifest, error) {
@@ -322,6 +330,22 @@ func (s *fakeStore) AddRepo(_ string, repo domain.Repo, _ bool) (app.Written, er
 func (s *fakeStore) Create(_ string, m *domain.Manifest) error {
 	s.created = m
 	return nil
+}
+
+func (s *fakeStore) Format(_ string, apply bool) ([]app.Formatted, error) {
+	s.formatted++
+	out := []app.Formatted{{
+		File:    app.ManifestName,
+		Entries: len(s.manifest.Repos),
+		Changed: s.unformatted,
+	}}
+	if s.hasLocal {
+		out = append(out, app.Formatted{File: app.LocalManifestName, Entries: 1})
+	}
+	if apply {
+		s.unformatted = false
+	}
+	return out, nil
 }
 
 // fakePrompt implements app.Prompter with scripted answers.

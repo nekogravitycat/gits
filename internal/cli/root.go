@@ -116,6 +116,7 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		newAdoptCommand(ctx, newRuntime, setExit),
 		newAddCommand(ctx, newRuntime, setExit),
 		newListCommand(ctx, newRuntime, setExit),
+		newFmtCommand(ctx, newRuntime, setExit),
 		newDepsCommand(ctx, newRuntime, setExit),
 		newForeachCommand(ctx, newRuntime, setExit),
 	)

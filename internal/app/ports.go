@@ -173,6 +173,32 @@ type ManifestStore interface {
 
 	// Create writes a new manifest. It refuses to overwrite an existing one.
 	Create(workspace string, m *domain.Manifest) error
+
+	// Format rewrites the workspace's manifest files in canonical form: entries in name order,
+	// one blank line between them, fields in a fixed order, comments preserved.
+	//
+	// It returns one result per file it looked at -- gits.yaml always, gits.local.yaml when this
+	// machine has one. With apply false nothing is written; the results still report whether each
+	// file was already canonical, which is what --dry-run needs and what makes a check-only run
+	// possible.
+	Format(workspace string, apply bool) ([]Formatted, error)
+}
+
+// Formatted reports what formatting one manifest file did, or would do.
+type Formatted struct {
+	// File is the file's name, gits.yaml or gits.local.yaml. Not a path: the workspace is already
+	// in the JSON header, and a bare name reads the same on every OS.
+	File string
+
+	// Entries is how many entries the file's list holds.
+	Entries int
+
+	// Changed reports that the file on disk differed from its canonical form.
+	Changed bool
+
+	// Reordered names the entries the sort moved, in their new order. Empty when nothing moved,
+	// which is the normal case for a file only gits has written.
+	Reordered []string
 }
 
 // Written reports what a manifest write actually did, so callers can distinguish a real change

@@ -151,6 +151,7 @@ Two quirks worth knowing:
 | | `adopt` | Register repos already on disk, asking about each. |
 | | `add` | Register one repo, non-interactively. |
 | | `clone` | Materialise repos the manifest lists and this machine lacks. |
+| | `fmt` | Put the manifest files back in their canonical layout. |
 | **Queries** | `list` | What the manifest declares. Manifest only, no I/O. |
 | | `deps` | Who is pinned to an outdated version of what. |
 | **Precise** | `sync` | The fetch-and-fast-forward half of `up`. |
@@ -173,6 +174,12 @@ A few behaviours that are easy to be surprised by:
 - **`foreach`** cannot tell `git log` from `git reset --hard`, so every run counts as a write and
   `no-write` repos are excluded unless you pass `--include-no-write`. It asks first, and caps each
   repo's output at 8KB.
+- **`fmt`** sorts the entries by name, puts a blank line between them and orders each entry's
+  fields the same way, keeping your comments with the entries they describe. It does the same for
+  `gits.local.yaml` when you have one. For the shared list the sort is the point: name order is what
+  lets two machines add repos independently and have git merge the result. It rewrites nothing that
+  is already canonical, so it is safe in a pre-commit hook; `gits fmt --dry-run --exit-code` checks
+  without writing.
 
 ## Choosing which repos to act on
 
@@ -347,7 +354,8 @@ Guarantees worth relying on:
 
 Retry safety: `status` / `deps` / `list` are read-only; `sync` / `up` / `clone` / `push` are
 idempotent; `commit` never creates an empty commit; `add` / `adopt` are no-ops when the entry exists;
-`init` refuses to overwrite; `foreach` is as safe as the command you gave it.
+`init` refuses to overwrite; `fmt` writes nothing that is already canonical; `foreach` is as safe as
+the command you gave it.
 
 ### Error codes
 

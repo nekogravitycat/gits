@@ -513,6 +513,35 @@ func (h *Human) Add(res *app.AddResult) {
 	}
 }
 
+// Format renders the outcome of canonicalising the manifest files.
+//
+// Every file that was looked at gets a line, the untouched ones dimmed. Listing them is how the
+// reader learns gits.local.yaml was considered at all -- silence would read as "it was skipped".
+func (h *Human) Format(res *app.FormatResult) {
+	for _, f := range res.Files {
+		if !f.Changed {
+			h.printf("%s\n", h.style.Dim(fmt.Sprintf("%s is already formatted (%d entries)", f.File, f.Entries)))
+			continue
+		}
+
+		verb := "formatted"
+		if res.DryRun {
+			verb = "would format"
+		}
+		h.printf("%s %s (%d entries)\n", verb, f.File, f.Entries)
+
+		if len(f.Reordered) > 0 {
+			// Naming them matters: a reordered entry is the one change fmt makes that a reviewer
+			// cannot spot from the diff's shape alone.
+			h.printf("  moved into name order: %s\n", strings.Join(f.Reordered, ", "))
+		}
+	}
+
+	if res.DryRun && res.Changed() {
+		h.printf("%s\n", h.style.Dim("run without --dry-run to write it"))
+	}
+}
+
 // Error renders a fatal error with its code and next step.
 func (h *Human) Error(err error) {
 	code := app.CodeOf(err)

@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -68,13 +67,20 @@ func (s *Store) Create(workspace string, m *domain.Manifest) error {
 		b.WriteString("  # No repos yet. Register one with:\n")
 		b.WriteString("  #   gits add <name> --url <url>\n")
 	}
-	for _, r := range m.Repos {
+	for i, r := range m.Repos {
+		if i > 0 {
+			// One blank line between entries, matching what encodeManifest re-imposes on every
+			// later write. A fresh manifest is therefore already formatted.
+			b.WriteString("\n")
+		}
 		writeEntryText(&b, r)
 	}
 
 	return writeFileAtomic(path, b.Bytes())
 }
 
+// writeEntryText renders one entry as text, in entryKeyOrder. Keep the two in step: `gits fmt` is
+// a no-op on a manifest gits wrote, and that promise is what makes it safe in a pre-commit hook.
 func writeEntryText(b *bytes.Buffer, r domain.Repo) {
 	fmt.Fprintf(b, "  - name: %s\n", r.Name)
 	if r.Path != "" {
@@ -237,58 +243,11 @@ func buildEntryNode(r domain.Repo) *yaml.Node {
 }
 
 func encodeAndWrite(path string, doc *yaml.Node) error {
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(yamlIndent)
-	if err := enc.Encode(doc); err != nil {
-		return &app.Error{Code: domain.ErrManifest, Msg: "cannot encode " + path, Exit: app.ExitUsage, Err: err}
+	data, err := encodeManifest(path, doc, manifestLayout.listKey)
+	if err != nil {
+		return err
 	}
-	if err := enc.Close(); err != nil {
-		return &app.Error{Code: domain.ErrManifest, Msg: "cannot encode " + path, Exit: app.ExitUsage, Err: err}
-	}
-	return writeFileAtomic(path, spaceSections(buf.Bytes()))
-}
-
-// spaceSections puts a blank line back before each top-level section.
-//
-// yaml.v3 keeps comments on its nodes but has nowhere to record blank lines, so a round trip
-// collapses the file into one dense block. The comments survive -- which is the guarantee that
-// matters -- but a manifest listing eighteen repos becomes markedly harder to read, and §5.1 asks
-// for the formatting to survive too.
-//
-// Rather than trying to remember where the blank lines were, this re-imposes the layout gits
-// writes in the first place: one blank line before a top-level key, and one before a comment block
-// that starts a new section. Entry-level comments are left alone, since those belong tight to
-// their entry.
-func spaceSections(data []byte) []byte {
-	lines := strings.Split(string(data), "\n")
-	out := make([]string, 0, len(lines)+8)
-
-	for i, line := range lines {
-		if i > 0 && startsSection(line) && needsBlankBefore(lines[i-1]) {
-			out = append(out, "")
-		}
-		out = append(out, line)
-	}
-	return []byte(strings.Join(out, "\n"))
-}
-
-// startsSection reports whether a line begins a new top-level section: an unindented key, or an
-// unindented comment introducing one.
-func startsSection(line string) bool {
-	if line == "" || strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-		return false
-	}
-	return true
-}
-
-// needsBlankBefore reports whether the previous line should be followed by a blank one.
-//
-// A comment immediately above a key documents that key, so the two stay together; the blank line
-// goes above the comment instead.
-func needsBlankBefore(prev string) bool {
-	trimmed := strings.TrimSpace(prev)
-	return trimmed != "" && !strings.HasPrefix(trimmed, "#")
+	return writeFileAtomic(path, data)
 }
 
 // writeFileAtomic writes through a temporary file in the same directory, then renames.
