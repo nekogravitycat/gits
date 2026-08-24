@@ -25,6 +25,29 @@ make build              # -> bin/gits
 passes over the whole module, and `go test ./...` is green. Do not bypass it with `--no-verify`;
 fix the cause.
 
+## Releasing
+
+`go install .../gits@latest` resolves to the highest semver git tag once one exists — that is how
+the Go module proxy works, not something this repo configures. Before the first tag it fell back to
+resolving the default branch's latest commit through the proxy's pseudo-version logic, which the
+proxy caches and can serve stale for a while. So: **tag every release**, in `vX.Y.Z` form, and let
+that be the only mechanism `@latest` ever has to fall back on.
+
+```
+make release VERSION=v0.1.0   # tag + push, after lint/test pass and main is in sync with origin
+```
+
+The pushed tag is the whole handoff to CI: `.github/workflows/release.yml` runs `goreleaser`
+(config in `.goreleaser.yaml`) to cross-build linux/darwin/windows × amd64/arm64 binaries, checksum
+them, generate a changelog from commits since the last tag, and publish all of it to a GitHub
+Release — a second distribution channel for anyone who would rather not have a Go toolchain.
+`goreleaser` stamps the same `internal/cli.version` var that `make build`/`make install` stamp
+locally via `git describe`, so `gits --version` always names a real commit or tag, never `dev`,
+regardless of which path built the binary.
+
+Tags are the versioning source of truth: nothing else (a VERSION file, a changelog header) should
+duplicate it.
+
 ## Architecture
 
 Clean architecture, dependencies pointing inward only. **A package may only import from the layers

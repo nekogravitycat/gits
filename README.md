@@ -20,11 +20,31 @@ gits status      # what's dirty, what's behind, what isn't even here
 go install github.com/nekogravitycat/gits/cmd/gits@latest
 ```
 
+`@latest` resolves to the newest [tagged release](https://github.com/nekogravitycat/gits/releases).
+No Go toolchain handy? Prebuilt binaries for Linux, macOS and Windows (amd64/arm64) are attached to
+every release there too — download, unpack, put `gits` on `PATH`.
+
 Or from a clone: `make build` (→ `bin/gits`).
 
 Building needs Go 1.26+; running needs `git` on `PATH`. `gits` shells out to your real `git`, so your
 credential helper, GPG signing, hooks and `includeIf` configuration behave exactly as usual. Linux,
 macOS and Windows are equally supported.
+
+## Update
+
+```sh
+go install github.com/nekogravitycat/gits/cmd/gits@latest
+```
+
+Re-running the same install command fetches the latest release and overwrites the existing binary.
+`gits --version` confirms what you ended up with.
+
+Or from a clone: pull, then rebuild.
+
+```sh
+git pull
+make build   # -> bin/gits
+```
 
 ## Quick start
 

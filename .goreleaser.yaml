@@ -1,0 +1,56 @@
+# Release build config, run by .github/workflows/release.yml whenever a `vX.Y.Z` tag is pushed
+# (see `make release` in the Makefile). Builds cross-platform binaries, checksums them, and
+# publishes both plus an auto-generated changelog to a GitHub Release.
+#
+# `go install github.com/nekogravitycat/gits/cmd/gits@latest` does not depend on any of this —
+# once a semver tag exists, the Go module proxy resolves @latest to it on its own. This file only
+# covers the second, industry-standard distribution channel: prebuilt binaries on the Releases
+# page for people who would rather not have a Go toolchain installed.
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: gits
+    main: ./cmd/gits
+    binary: gits
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # Keep in step with the version var the Makefile's local `build`/`install` stamp via
+    # `git describe` — root.go reads the same package-level var either way.
+    ldflags:
+      - -s -w -X github.com/nekogravitycat/gits/internal/cli.version={{ .Tag }}
+
+archives:
+  - id: gits
+    name_template: >-
+      {{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}
+    formats: ["tar.gz"]
+    format_overrides:
+      - goos: windows
+        formats: ["zip"]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: nekogravitycat
+    name: gits
