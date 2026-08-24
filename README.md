@@ -257,7 +257,7 @@ overrides:
   - name: legacy-synth
     disabled: true            # not on this machine on purpose; never report it as missing
   - name: stack-tools
-    path: ../shared/stack-tools
+    path: vendor/stack-tools  # elsewhere on this machine; must stay inside the workspace
   - name: drawer-tool
     no-write: true            # may only tighten the boundary, never loosen it
 ```

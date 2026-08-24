@@ -168,7 +168,7 @@ overrides:
   - name: legacy-synth
     disabled: true            # 這台機器刻意沒有它；不列入任何指令，不報 missing
   - name: stack-tools
-    path: ../shared/stack-tools
+    path: vendor/stack-tools     # 這台機器放在別的子目錄
   - name: drawer-tool
     no-write: true
 ```
@@ -176,7 +176,7 @@ overrides:
 | 欄位 | 說明 |
 | --- | --- |
 | `disabled` | 該 repo 在這台機器上完全不參與任何指令。**不會被報成 `missing`。** |
-| `path` | 覆寫路徑。 |
+| `path` | 覆寫路徑。**仍須留在 workspace 內**——`..` 與絕對路徑同樣被 §5.6 拒絕。這個檔案不進版控也沒人 review，而 path 決定的是 `commit`／`push`／`foreach` 實際跑在哪個目錄。 |
 | `no-write` | 覆寫寫入邊界（只能收緊為 `true`，不能放寬為 `false`）。 |
 
 **不允許新增 repo 條目。** 新 repo 一律進共用清單，否則痛點 3 會從另一個方向回來。
