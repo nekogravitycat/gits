@@ -33,9 +33,19 @@ resolving the default branch's latest commit through the proxy's pseudo-version 
 proxy caches and can serve stale for a while. So: **tag every release**, in `vX.Y.Z` form, and let
 that be the only mechanism `@latest` ever has to fall back on.
 
+```sh
+git checkout main && git pull   # make sure local main is in sync with origin/main first
+make release VERSION=v0.1.0     # tag + push, only after lint/test pass
 ```
-make release VERSION=v0.1.0   # tag + push, after lint/test pass and main is in sync with origin
-```
+
+`make release` refuses to run unless: `VERSION` was passed explicitly, it matches `vX.Y.Z`, the
+working tree is clean, `HEAD` is `main`, local `main` matches `origin/main` (it fetches to check),
+and the tag doesn't already exist — only then does it run `make lint test`, tag, and push. Pushing
+the tag is the only thing it does that's visible to anyone else.
+
+Version numbers follow semver: bump MAJOR for a breaking change (manifest format, the meaning of an
+`ErrCode`), MINOR for a new command or flag, PATCH for a fix. Keep incrementing from whatever the
+first tag was.
 
 The pushed tag is the whole handoff to CI: `.github/workflows/release.yml` runs `goreleaser`
 (config in `.goreleaser.yaml`) to cross-build linux/darwin/windows × amd64/arm64 binaries, checksum
