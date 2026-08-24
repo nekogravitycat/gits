@@ -66,9 +66,9 @@ func Init(ctx context.Context, env *Env, g Global) (*InitResult, error) {
 		m.Repos = append(m.Repos, entry)
 	}
 
-	// Byte order by name, so that two machines adding entries independently mostly touch different
+	// domain.NameLess, so that two machines adding entries independently mostly touch different
 	// parts of the file and git can merge them without help (spec §5.2, §10.1).
-	sort.Slice(m.Repos, func(i, j int) bool { return m.Repos[i].Name < m.Repos[j].Name })
+	sort.Slice(m.Repos, func(i, j int) bool { return domain.NameLess(m.Repos[i].Name, m.Repos[j].Name) })
 
 	if g.DryRun {
 		res.Repos = entriesOf(m)

@@ -185,10 +185,11 @@ func (s *Store) AddRepo(workspace string, repo domain.Repo, update bool) (app.Wr
 	return app.Written{Added: true}, nil
 }
 
-// insertionPoint returns the index where name belongs, keeping the sequence in byte order by name.
+// insertionPoint returns the index where name belongs, keeping the sequence ordered by
+// domain.NameLess.
 func insertionPoint(repos *yaml.Node, name string) int {
 	for i, entry := range repos.Content {
-		if scalar(field(entry, "name")) > name {
+		if domain.NameLess(name, scalar(field(entry, "name"))) {
 			return i
 		}
 	}

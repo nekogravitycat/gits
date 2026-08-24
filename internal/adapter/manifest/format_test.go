@@ -115,6 +115,31 @@ repos:
 	}
 }
 
+// An uppercase-led name must not jump ahead of every lowercase one: sorting is case-insensitive,
+// not byte order, so "FantasyBaccaratSynthesizer" belongs after "amethyst-stack".
+func TestFormat_SortIsCaseInsensitive(t *testing.T) {
+	dir, path := write(t, `version: 1
+repos:
+  - name: FantasyBaccaratSynthesizer
+    url: https://example.com/fbs.git
+  - name: amethyst-stack
+    url: https://example.com/amethyst-stack.git
+defaults:
+  branch: main
+  remote: origin
+`)
+
+	res := formatShared(t, dir, true)
+	if want := "amethyst-stack, FantasyBaccaratSynthesizer"; strings.Join(res.Reordered, ", ") != want {
+		t.Errorf("Reordered = %v, want [%s]", res.Reordered, want)
+	}
+
+	got := read(t, path)
+	if strings.Index(got, "name: amethyst-stack") > strings.Index(got, "name: FantasyBaccaratSynthesizer") {
+		t.Errorf("amethyst-stack should sort before FantasyBaccaratSynthesizer:\n%s", got)
+	}
+}
+
 // gits.local.yaml gets the same treatment: same sort, same spacing, its own field order. Two files
 // sitting side by side should not need two conventions.
 func TestFormat_CanonicalLayoutOfTheLocalFile(t *testing.T) {

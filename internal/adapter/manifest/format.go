@@ -180,7 +180,7 @@ func formatFile(workspace, name string, content []byte, lay layout, apply bool) 
 // sortEntries puts an entry list in name order and reports which entries moved, in their new
 // order.
 //
-// Byte order by name, the same order AddRepo inserts into. For gits.yaml it is not cosmetic: two
+// domain.NameLess, the same comparator AddRepo inserts by. For gits.yaml it is not cosmetic: two
 // machines that each add a repo land in different parts of the file and git merges them without
 // help, whereas entries appended at the end collide every time (spec §5.2, §10.1). gits.local.yaml
 // never leaves the machine, so there the reason is the plainer one -- an entry is findable in a
@@ -192,7 +192,7 @@ func sortEntries(repos *yaml.Node) []string {
 	// Stable, so that entries sharing a name -- which validation rejects, but fmt may still be
 	// asked to tidy -- keep their relative order instead of shuffling on every run.
 	sort.SliceStable(repos.Content, func(i, j int) bool {
-		return nameOf(repos.Content[i]) < nameOf(repos.Content[j])
+		return domain.NameLess(nameOf(repos.Content[i]), nameOf(repos.Content[j]))
 	})
 
 	var moved []string
