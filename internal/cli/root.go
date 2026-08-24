@@ -168,7 +168,11 @@ func buildRuntime(flags *globalFlags, stdout, stderr io.Writer, needManifest boo
 		Jobs:     flags.jobs,
 	}
 
-	logger := ui.NewLogger(stderr, flags.verbose)
+	// In-place progress redraw needs a real terminal on the receiving end -- piping stderr to a
+	// file or another process, or downgrading with --plain/--json, all fall back to one plain
+	// line per event (spec §6.4's ASCII/no-colour fallback, extended to progress).
+	live := IsTerminal(os.Stderr) && !plain
+	logger := ui.NewLogger(stderr, flags.verbose, live)
 
 	// Prompts are only ever possible on a terminal. Everything downstream checks IsInteractive
 	// before asking anything, and fails with E_NEEDS_YES instead of waiting (spec §6.7).

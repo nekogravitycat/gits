@@ -238,4 +238,15 @@ type Logger interface {
 	Verbosef(format string, args ...any)
 	// Warnf writes a warning the user should see regardless of verbosity.
 	Warnf(format string, args ...any)
+
+	// Progress reports that done of total repos have finished a concurrent stage (syncing,
+	// cloning, checking...). Called once with done == 0 and name == "" when the stage starts, and
+	// once per repo as it finishes.
+	//
+	// Without this, a wide workspace goes silent for as long as the slowest repo in the batch
+	// takes, which reads exactly like a hang. total == 0 is a no-op.
+	Progress(stage string, done, total int, name string)
+	// ProgressDone closes out whatever the stage's Progress calls left on screen. Safe to call
+	// even when Progress was never called.
+	ProgressDone()
 }

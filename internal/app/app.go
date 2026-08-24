@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nekogravitycat/gits/internal/domain"
@@ -160,4 +161,20 @@ func mapRepos[T any](ctx context.Context, jobs int, repos []domain.Repo, fn func
 	}
 	wg.Wait()
 	return results
+}
+
+// withProgress wraps fn so that each of a mapRepos batch reports as it finishes, via
+// log.Progress(stage, ...). Call log.Progress(stage, 0, total, "") before starting the batch and
+// log.ProgressDone() after, so the stage announces itself even before the first repo lands.
+//
+// The counter is atomic because completions arrive from mapRepos's worker goroutines in whatever
+// order the network gives them, not manifest order.
+func withProgress[T any](log Logger, stage string, total int, fn func(context.Context, domain.Repo) T) func(context.Context, domain.Repo) T {
+	var done int32
+	return func(ctx context.Context, r domain.Repo) T {
+		out := fn(ctx, r)
+		n := atomic.AddInt32(&done, 1)
+		log.Progress(stage, int(n), total, r.Name)
+		return out
+	}
 }

@@ -385,6 +385,10 @@ func (l *silentLog) Warnf(format string, args ...any) {
 	_ = args
 }
 
+func (l *silentLog) Progress(string, int, int, string) {}
+
+func (l *silentLog) ProgressDone() {}
+
 // harness bundles a fully faked environment for one test.
 type harness struct {
 	env    *app.Env

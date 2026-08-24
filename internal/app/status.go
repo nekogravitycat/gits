@@ -58,7 +58,7 @@ func StatusOf(ctx context.Context, env *Env, g Global, opts StatusOptions, m *do
 		return nil, err
 	}
 
-	statuses := Observe(ctx, env, g, m, selected, opts.Fetch)
+	statuses := observeStage(ctx, env, g, m, selected, opts.Fetch, "checking")
 
 	res := &StatusResult{
 		Repos:   statuses,
@@ -87,9 +87,24 @@ func StatusOf(ctx context.Context, env *Env, g Global, opts StatusOptions, m *do
 
 // Observe gathers the state of each repo concurrently, returning results in manifest order.
 func Observe(ctx context.Context, env *Env, g Global, m *domain.Manifest, repos []domain.Repo, fetch bool) []domain.RepoStatus {
-	return mapRepos(ctx, g.Concurrency(), repos, func(ctx context.Context, r domain.Repo) domain.RepoStatus {
+	return observeStage(ctx, env, g, m, repos, fetch, "")
+}
+
+// observeStage is Observe with an optional progress stage name.
+//
+// commit and push call Observe for a quick local status check and stay silent; only status's own
+// pass -- the one that can involve a real fetch across every repo -- announces itself, so a stage
+// name is opt-in rather than baked into Observe itself.
+func observeStage(ctx context.Context, env *Env, g Global, m *domain.Manifest, repos []domain.Repo, fetch bool, stage string) []domain.RepoStatus {
+	fn := func(ctx context.Context, r domain.Repo) domain.RepoStatus {
 		return observeRepo(ctx, env, m, r, fetch)
-	})
+	}
+	if stage == "" {
+		return mapRepos(ctx, g.Concurrency(), repos, fn)
+	}
+	env.Log.Progress(stage, 0, len(repos), "")
+	defer env.Log.ProgressDone()
+	return mapRepos(ctx, g.Concurrency(), repos, withProgress(env.Log, stage, len(repos), fn))
 }
 
 // observeRepo inspects a single repo and derives its state.
