@@ -63,6 +63,14 @@ func skip(r domain.Repo, code domain.ErrCode, msg, hint string) RepoResult {
 	}
 }
 
+// cancelledRepo builds a skipped result for a repo mapRepos never started because the run was
+// interrupted (SIGINT) while it was still waiting for a concurrency slot. Skipped rather than
+// Failed: AnyFailed must stay false so an interrupted run reports exit 130, not a exit 1 that
+// masks it (spec §6.10).
+func cancelledRepo(r domain.Repo) RepoResult {
+	return skip(r, domain.ErrInterrupted, "interrupted before starting", "")
+}
+
 // fail builds a failed result from an error the adapter already classified.
 func fail(r domain.Repo, err error) RepoResult {
 	return RepoResult{

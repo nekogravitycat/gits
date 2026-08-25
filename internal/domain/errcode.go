@@ -24,6 +24,9 @@ const (
 	ErrNeedsYes    ErrCode = "E_NEEDS_YES"
 	ErrMaxRepos    ErrCode = "E_MAX_REPOS"
 	ErrGit         ErrCode = "E_GIT"
+	// ErrInterrupted marks a repo mapRepos never got to start because the run was cancelled
+	// (SIGINT) while it was still waiting for a concurrency slot.
+	ErrInterrupted ErrCode = "E_INTERRUPTED"
 )
 
 // Retryable reports whether retrying could plausibly change the outcome (spec §6.6): a network

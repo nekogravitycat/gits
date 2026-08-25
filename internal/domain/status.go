@@ -153,7 +153,15 @@ func Summarize(statuses []RepoStatus, excluded int) Summary {
 			sum.Behind++
 		case StateMissing:
 			sum.Missing++
-		case StateError, StateNotARepo:
+		case StateError:
+			// A repo mapRepos never got to observe because the run was interrupted is not a gits
+			// failure -- it must not force exit 1 over the 130 an interrupt should report (spec §6.10).
+			if st.Code == ErrInterrupted {
+				sum.Skipped++
+			} else {
+				sum.Failed++
+			}
+		case StateNotARepo:
 			sum.Failed++
 		case StateDetached, StateNoUpstream, StateDiverged:
 			sum.Attention++

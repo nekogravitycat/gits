@@ -1,6 +1,7 @@
 package git
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/nekogravitycat/gits/internal/domain"
@@ -162,7 +163,7 @@ func TestParseGitmodules(t *testing.T) {
 	url = https://host/a/tools.git
 	branch = feature/arcade-proto
 `
-	subs := parseGitmodules(content)
+	subs := parseGitmodules(content, nil)
 	if len(subs) != 2 {
 		t.Fatalf("parsed %d submodules, want 2: %+v", len(subs), subs)
 	}
@@ -184,24 +185,45 @@ func TestParseGitmodules(t *testing.T) {
 }
 
 func TestParseGitmodules_Empty(t *testing.T) {
-	if subs := parseGitmodules(""); len(subs) != 0 {
+	if subs := parseGitmodules("", nil); len(subs) != 0 {
 		t.Errorf("parsed %d submodules from empty content", len(subs))
 	}
 }
 
-// Entries with no path are incomplete and must not become phantom dependencies.
+// Entries with no path are incomplete and must not become phantom dependencies. The drop must not
+// be silent, though: a warning is the only way a caller learns a dependency vanished.
 func TestParseGitmodules_SkipsEntryWithoutPath(t *testing.T) {
-	subs := parseGitmodules("[submodule \"broken\"]\n\turl = https://host/a/b.git\n")
+	var warnings []string
+	subs := parseGitmodules("[submodule \"broken\"]\n\turl = https://host/a/b.git\n", func(msg string) {
+		warnings = append(warnings, msg)
+	})
 	if len(subs) != 0 {
 		t.Errorf("parsed %+v, want nothing for an entry with no path", subs)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], "broken") {
+		t.Errorf("warning %q does not name the malformed section", warnings[0])
+	}
+}
+
+// A well-formed .gitmodules must not warn about anything.
+func TestParseGitmodules_NoWarningsWhenWellFormed(t *testing.T) {
+	warned := false
+	parseGitmodules("[submodule \"proto\"]\n\tpath = proto\n\turl = https://host/a/b.git\n", func(string) {
+		warned = true
+	})
+	if warned {
+		t.Errorf("well-formed .gitmodules should not produce a warning")
 	}
 }
 
 // Every dependent in a real workspace names the submodule differently while pointing at the same
 // repo. Only the URL identifies it, so the URL must round-trip exactly.
 func TestParseGitmodules_URLIdentifiesTheDependency(t *testing.T) {
-	a := parseGitmodules("[submodule \"proto\"]\n\tpath = proto\n\turl = ssh://git@host:24/a/b.git\n")
-	b := parseGitmodules("[submodule \"shared-proto\"]\n\tpath = shared-proto\n\turl = https://host/a/b\n")
+	a := parseGitmodules("[submodule \"proto\"]\n\tpath = proto\n\turl = ssh://git@host:24/a/b.git\n", nil)
+	b := parseGitmodules("[submodule \"shared-proto\"]\n\tpath = shared-proto\n\turl = https://host/a/b\n", nil)
 	if !domain.SameRepoURL(a[0].URL, b[0].URL) {
 		t.Errorf("%q and %q should resolve to the same dependency", a[0].URL, b[0].URL)
 	}

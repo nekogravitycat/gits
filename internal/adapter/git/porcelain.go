@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -109,12 +110,24 @@ func parseSigned(s string) int {
 // Parsed directly (not via `git config -f`): .gitmodules is a plain committed file needing no
 // subprocess. The URL identifies the dependency; the path deliberately does not, since most
 // dependents name the same submodule "proto" (spec §7.11).
-func parseGitmodules(content string) []domain.Submodule {
+//
+// A section with no path is malformed (real after a bad merge) and is dropped rather than
+// reported as a dependency with an empty path; warn, if non-nil, is called so the drop is not
+// silent -- deps is described as gits' original value, and a vanished dependency deserves a
+// diagnostic (spec §6 "報告誠實").
+func parseGitmodules(content string, warn func(msg string)) []domain.Submodule {
 	var subs []domain.Submodule
 	var current *domain.Submodule
 
 	flush := func() {
-		if current != nil && current.Path != "" {
+		if current == nil {
+			return
+		}
+		if current.Path == "" {
+			if warn != nil {
+				warn(fmt.Sprintf("gitmodules: [submodule %q] has no path, skipping", current.Name))
+			}
+		} else {
 			subs = append(subs, *current)
 		}
 		current = nil

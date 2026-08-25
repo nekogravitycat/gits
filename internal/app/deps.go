@@ -52,6 +52,8 @@ func DepsOf(ctx context.Context, env *Env, g Global, opts DepsOptions, m *domain
 			return dependentSubmodules{repo: r}
 		}
 		return dependentSubmodules{repo: r, subs: subs}
+	}, func(r domain.Repo) dependentSubmodules {
+		return dependentSubmodules{repo: r}
 	})
 
 	groups := groupByDependency(found)
@@ -154,7 +156,7 @@ func fetchCanonicals(ctx context.Context, env *Env, g Global, m *domain.Manifest
 			env.Log.Warnf("deps --fetch: %s: %v", r.Name, MessageOf(err))
 		}
 		return struct{}{}
-	})
+	}, func(domain.Repo) struct{} { return struct{}{} })
 }
 
 // compareGroup fills in a verdict for every pin in one group.

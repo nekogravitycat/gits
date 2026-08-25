@@ -660,7 +660,7 @@ gits commit -r arcade-server -m "feat: seat state sync" -y --json
 | --- | --- |
 | `-n, --dry-run` | 只顯示會新增什麼，不寫檔。 |
 | `-y, --yes` | 全部納入，不逐一詢問。 |
-| `--group <name>` | 新條目一律歸入此群組。 |
+| `--group-tag <name>` | 新條目一律歸入此群組。**不是** `-g, --group`：那個名字已經是 §6.12 的持久性篩選旗標，`adopt`／`add` 用 `--group-tag` 避免與它衝突。 |
 | `--no-write` | 新條目一律標記為 `no-write`。 |
 | `--json` | 結構化輸出。 |
 
@@ -669,7 +669,7 @@ gits commit -r arcade-server -m "feat: seat state sync" -y --json
 登記單一 repo 條目。零互動、可腳本化——**這是 agent 與腳本新增 repo 的正式入口**，避免任何人直接編輯 `gits.yaml`（§5.1）。
 
 ```
-gits add <name> --url <url> [--path <p>] [--branch <b>] [--group <g>]... [--no-write] [--description <d>]
+gits add <name> --url <url> [--path <p>] [--branch <b>] [--group-tag <g>]... [--no-write] [--description <d>]
 ```
 
 - 條目已存在且內容相同 → no-op，退出碼 `0`。

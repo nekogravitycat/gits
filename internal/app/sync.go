@@ -112,7 +112,7 @@ func syncRest(ctx context.Context, env *Env, g Global, opts SyncOptions, m *doma
 	env.Log.Progress("syncing", 0, len(rest), "")
 	res.Repos = mapRepos(ctx, g.Concurrency(), rest, withProgress(env.Log, "syncing", len(rest), func(ctx context.Context, r domain.Repo) RepoResult {
 		return syncRepo(ctx, env, g, opts, m, r)
-	}))
+	}), cancelledRepo)
 	env.Log.ProgressDone()
 	res.Skipped = skipped
 	res.Summary = SummarizeResults(res.Repos, len(skipped))

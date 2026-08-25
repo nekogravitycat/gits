@@ -136,7 +136,13 @@ func (e *Env) Confirm(g Global, command, question string) error {
 //
 // NOTE: results are written by index into a pre-sized slice and read only after all workers finish,
 // so output never depends on completion order (spec §6.3, §6.5).
-func mapRepos[T any](ctx context.Context, jobs int, repos []domain.Repo, fn func(context.Context, domain.Repo) T) []T {
+//
+// The semaphore is acquired before a goroutine is even spawned, so --jobs is a real concurrency
+// bound rather than just a cap on how many run at once. A repo that is still waiting for a slot
+// when ctx is cancelled (SIGINT) never runs fn at all; cancelled supplies its result instead of
+// leaving the zero value, which would otherwise vanish from every bucket a caller tallies against
+// (spec's report-must-reconcile invariant).
+func mapRepos[T any](ctx context.Context, jobs int, repos []domain.Repo, fn func(context.Context, domain.Repo) T, cancelled func(domain.Repo) T) []T {
 	results := make([]T, len(repos))
 	if len(repos) == 0 {
 		return results
@@ -148,17 +154,18 @@ func mapRepos[T any](ctx context.Context, jobs int, repos []domain.Repo, fn func
 	sem := make(chan struct{}, jobs)
 	var wg sync.WaitGroup
 	for i, r := range repos {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			results[i] = cancelled(r)
+			continue
+		}
 		wg.Add(1)
-		go func() {
+		go func(i int, r domain.Repo) {
 			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				return
-			}
+			defer func() { <-sem }()
 			results[i] = fn(ctx, r)
-		}()
+		}(i, r)
 	}
 	wg.Wait()
 	return results

@@ -109,7 +109,7 @@ func hasCommittableChanges(st domain.RepoStatus, all bool) bool {
 func commitWithMessage(ctx context.Context, env *Env, g Global,
 	repos []domain.Repo, statuses []domain.RepoStatus, opts CommitOptions, res *CommitResult,
 ) error {
-	if err := env.Confirm(g, "commit", commitQuestion(repos, statuses)); err != nil {
+	if err := env.Confirm(g, "commit", commitQuestion(repos, statuses, opts.All)); err != nil {
 		return err
 	}
 	for i, r := range repos {
@@ -218,14 +218,20 @@ func commitRepo(ctx context.Context, env *Env, g Global, r domain.Repo, st domai
 	return out
 }
 
-func commitQuestion(repos []domain.Repo, statuses []domain.RepoStatus) string {
+// commitQuestion previews what commitRepo will actually commit: with -A that includes untracked
+// files, so the count here must match, or the user confirms N files and the result reports M>N.
+func commitQuestion(repos []domain.Repo, statuses []domain.RepoStatus, all bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Commit in %d repo(s): ", len(repos))
 	for i, r := range repos {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		fmt.Fprintf(&b, "%s (%d file(s))", r.Name, statuses[i].Dirty.Tracked)
+		files := statuses[i].Dirty.Tracked
+		if all {
+			files += statuses[i].Dirty.Untracked
+		}
+		fmt.Fprintf(&b, "%s (%d file(s))", r.Name, files)
 	}
 	b.WriteString(". Continue?")
 	return b.String()

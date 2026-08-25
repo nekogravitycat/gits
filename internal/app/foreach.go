@@ -51,13 +51,26 @@ type ForeachResult struct {
 }
 
 // Failed reports whether any repo exited non-zero, which drives exit code 1.
+//
+// A synthetic entry -- ErrMissingDir (gits skipped a repo whose directory does not exist) or
+// ErrInterrupted (gits never got to run the command before the run was cancelled) -- is not a
+// command that ran and exited non-zero, so it must not count toward this.
 func (r *ForeachResult) Failed() bool {
 	for _, o := range r.Repos {
-		if o.ExitCode != 0 {
+		if o.ExitCode != 0 && o.Code != domain.ErrMissingDir && o.Code != domain.ErrInterrupted {
 			return true
 		}
 	}
 	return false
+}
+
+// cancelledForeach builds a result for a repo mapRepos never started because the run was
+// interrupted while it was still waiting for a concurrency slot.
+func cancelledForeach(r domain.Repo) ForeachOutput {
+	return ForeachOutput{
+		Name: r.Name, Path: r.EffectivePath(), ExitCode: -1,
+		Code: domain.ErrInterrupted, Message: "interrupted before starting",
+	}
 }
 
 // Foreach runs an arbitrary command across the workspace (spec §7.12).
@@ -120,7 +133,7 @@ func Foreach(ctx context.Context, env *Env, g Global, opts ForeachOptions) (*For
 
 	ran := mapRepos(ctx, g.Concurrency(), runnable, func(ctx context.Context, r domain.Repo) ForeachOutput {
 		return runOne(ctx, env, r, opts.Args)
-	})
+	}, cancelledForeach)
 	res.Repos = append(res.Repos, ran...)
 	sortForeach(res.Repos, selected)
 	return res, nil

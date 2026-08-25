@@ -87,7 +87,11 @@ func (a *Adapter) ListSubmodules(ctx context.Context, dir string) ([]domain.Subm
 		}
 		return nil, err
 	}
-	subs := parseGitmodules(string(content))
+	subs := parseGitmodules(string(content), func(msg string) {
+		if a.runner.Log != nil {
+			a.runner.Log.Verbosef("%s: %s", dir, msg)
+		}
+	})
 	if len(subs) == 0 {
 		return nil, nil
 	}

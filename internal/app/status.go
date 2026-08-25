@@ -94,11 +94,21 @@ func observeStage(ctx context.Context, env *Env, g Global, m *domain.Manifest, r
 		return observeRepo(ctx, env, m, r, fetch)
 	}
 	if stage == "" {
-		return mapRepos(ctx, g.Concurrency(), repos, fn)
+		return mapRepos(ctx, g.Concurrency(), repos, fn, cancelledStatus)
 	}
 	env.Log.Progress(stage, 0, len(repos), "")
 	defer env.Log.ProgressDone()
-	return mapRepos(ctx, g.Concurrency(), repos, withProgress(env.Log, stage, len(repos), fn))
+	return mapRepos(ctx, g.Concurrency(), repos, withProgress(env.Log, stage, len(repos), fn), cancelledStatus)
+}
+
+// cancelledStatus builds a status for a repo mapRepos never started because the run was
+// interrupted while it was still waiting for a concurrency slot.
+func cancelledStatus(r domain.Repo) domain.RepoStatus {
+	return domain.RepoStatus{
+		Name: r.Name, Path: r.EffectivePath(), Groups: r.Groups,
+		Description: r.Description, NoWrite: r.NoWrite,
+		State: domain.StateError, Code: domain.ErrInterrupted, Message: "interrupted before starting",
+	}
 }
 
 // observeRepo inspects a single repo and derives its state.

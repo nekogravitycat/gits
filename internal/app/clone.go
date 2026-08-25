@@ -98,7 +98,7 @@ func CloneOf(ctx context.Context, env *Env, g Global, opts CloneOptions, m *doma
 	env.Log.Progress("cloning", 0, len(missing), "")
 	cloned := mapRepos(ctx, g.Concurrency(), missing, withProgress(env.Log, "cloning", len(missing), func(ctx context.Context, r domain.Repo) RepoResult {
 		return cloneRepo(ctx, env, g, opts, m, r)
-	}))
+	}), cancelledRepo)
 	env.Log.ProgressDone()
 	res.Repos = append(res.Repos, cloned...)
 	sortResultsByManifest(res.Repos, selected)

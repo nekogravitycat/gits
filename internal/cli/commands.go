@@ -472,7 +472,7 @@ func newDepsCommand(ctx context.Context, newRuntime runtimeFactory, setExit exit
 					return err
 				}
 				if rt.Global.JSON {
-					if err := rt.JSON.Deps(groups, opts.Fetch); err != nil {
+					if err := rt.JSON.Deps(groups, opts.Fetch, rt.Global.Verbose); err != nil {
 						return err
 					}
 				} else {

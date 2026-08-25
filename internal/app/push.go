@@ -76,7 +76,7 @@ func Push(ctx context.Context, env *Env, g Global, opts PushOptions) (*PushResul
 
 	executed := mapRepos(ctx, g.Concurrency(), toPush, func(ctx context.Context, r domain.Repo) RepoResult {
 		return pushRepo(ctx, env, m, r, plannedFor(res.Planned, r.Name), opts)
-	})
+	}, cancelledRepo)
 
 	// Splice executed outcomes back into the planned list so skipped repos stay visible in the
 	// report rather than vanishing.

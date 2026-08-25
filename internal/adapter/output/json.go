@@ -376,11 +376,13 @@ type depGroupDoc struct {
 	URL  string `json:"url,omitempty"`
 	// CRITICAL: Canonical is null (not omitted) when the workspace has no checkout of this
 	// dependency -- explicit null tells a caller the determination is incomplete, not clean (spec §7.11).
-	Canonical    *string  `json:"canonical"`
-	Baseline     string   `json:"baseline,omitempty"`
-	BaselineSHA  string   `json:"baselineSha,omitempty"`
-	DistinctSHAs int      `json:"distinctShas,omitempty"`
-	Pins         []pinDoc `json:"pins"`
+	Canonical    *string `json:"canonical"`
+	Baseline     string  `json:"baseline,omitempty"`
+	BaselineSHA  string  `json:"baselineSha,omitempty"`
+	DistinctSHAs int     `json:"distinctShas,omitempty"`
+	// Pins carries per-commit detail (SHA, ahead/behind, containing branches) and is only
+	// populated with -v: spec §6.5 rule 3 keeps the default deps --json payload at summary level.
+	Pins []pinDoc `json:"pins,omitempty"`
 
 	Code    domain.ErrCode `json:"code,omitempty"`
 	Message string         `json:"message,omitempty"`
@@ -394,8 +396,9 @@ type depsDoc struct {
 	Summary depSummaryDoc `json:"summary"`
 }
 
-// Deps writes a dependency payload.
-func (j *JSON) Deps(groups []domain.DepGroup, network bool) error {
+// Deps writes a dependency payload. Per-pin detail (SHA, ahead/behind, containing branches) is
+// only included when verbose; the default response stays at summary level (spec §6.5 rule 3).
+func (j *JSON) Deps(groups []domain.DepGroup, network, verbose bool) error {
 	doc := depsDoc{header: j.header("deps", false), Network: network}
 	for _, g := range groups {
 		gd := depGroupDoc{
@@ -408,14 +411,16 @@ func (j *JSON) Deps(groups []domain.DepGroup, network bool) error {
 			p := g.CanonicalPath
 			gd.Canonical = &p
 		}
-		for _, p := range g.Pins {
-			gd.Pins = append(gd.Pins, pinDoc{
-				Dependent: p.Dependent, SubmodulePath: p.SubmodulePath, SHA: p.SHA,
-				Baseline: p.BaselineRef, BaselineSource: string(p.BaselineSource),
-				Verdict: string(p.Verdict), Ahead: p.Ahead, Behind: p.Behind,
-				ContainingBranches: p.ContainingBranches,
-				Code:               p.Code, Message: p.Message, Hint: p.Hint,
-			})
+		if verbose {
+			for _, p := range g.Pins {
+				gd.Pins = append(gd.Pins, pinDoc{
+					Dependent: p.Dependent, SubmodulePath: p.SubmodulePath, SHA: p.SHA,
+					Baseline: p.BaselineRef, BaselineSource: string(p.BaselineSource),
+					Verdict: string(p.Verdict), Ahead: p.Ahead, Behind: p.Behind,
+					ContainingBranches: p.ContainingBranches,
+					Code:               p.Code, Message: p.Message, Hint: p.Hint,
+				})
+			}
 		}
 		doc.Deps = append(doc.Deps, gd)
 	}
