@@ -10,25 +10,24 @@ import (
 	"time"
 )
 
-// configureProcessGroup gives the child its own console process group, so a Ctrl+C delivered to
-// gits is not also delivered straight to git behind its back.
+// configureProcessGroup gives the child its own console process group, so a Ctrl+C to gits is not
+// also delivered straight to git behind its back.
 func configureProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
 }
 
 // killProcessTree terminates the child and everything it spawned.
 //
-// Windows has no process-group signal, and TerminateProcess ends only the one process -- leaving
-// git's ssh or credential-helper children alive, still holding the pipes gits waits on. taskkill
-// /T walks the tree properly and ships with every supported Windows, so it needs no extra
-// dependency. Process.Kill is the fallback if it is somehow unavailable: ending the parent alone
-// is better than ending nothing.
+// CRITICAL: Windows has no process-group signal and TerminateProcess ends only one process,
+// leaving git's ssh/credential-helper children alive holding gits' pipes (see runner.go
+// Architecture Note). taskkill /T walks the tree and ships with every supported Windows; if it is
+// somehow unavailable, Process.Kill (parent only) is the fallback.
 func killProcessTree(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
-	// The kill itself gets a short deadline: this runs on the timeout path, where the one thing
-	// that must not happen is blocking again.
+	// NOTE: this runs on the timeout path, so the kill itself gets a short deadline -- blocking
+	// again is the one thing that must not happen.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

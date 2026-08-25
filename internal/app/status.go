@@ -16,8 +16,8 @@ type StatusOptions struct {
 
 // StatusResult is one status run, ready to be rendered by either output mode.
 //
-// Both renderers consume this same value, which is what guarantees the spec's equal-audiences
-// rule: there is no fact a human can see on screen that --json does not also carry (spec §3.7).
+// Both renderers consume this same value, guaranteeing the equal-audiences rule: no fact a human
+// sees on screen is absent from --json (spec §3.7).
 type StatusResult struct {
 	Repos   []domain.RepoStatus
 	Skipped []domain.Excluded
@@ -28,18 +28,16 @@ type StatusResult struct {
 
 	// Stale marks ahead/behind numbers computed from possibly-outdated local refs.
 	//
-	// gits does not guess at the real numbers when offline; it says so and moves on. Silently
-	// presenting stale counts as live ones is the one thing the spec rules out (spec §6.9).
+	// NOTE: gits does not guess real numbers when offline; presenting stale counts as live ones is
+	// the one thing the spec rules out (spec §6.9).
 	Stale bool
 
 	// Deps is the dependency tally appended to the report, nil when --no-deps was given.
 	Deps *domain.DepSummary
 }
 
-// Status collects the state of every selected repo (spec §7.2).
-//
-// no-write repos are included: reading is not writing, and leaving them out would make the report
-// answer a different question than "what is in this workspace".
+// Status collects the state of every selected repo (spec §7.2). no-write repos are included:
+// reading is not writing.
 func Status(ctx context.Context, env *Env, g Global, opts StatusOptions) (*StatusResult, error) {
 	m, err := env.LoadManifest()
 	if err != nil {
@@ -48,10 +46,8 @@ func Status(ctx context.Context, env *Env, g Global, opts StatusOptions) (*Statu
 	return StatusOf(ctx, env, g, opts, m)
 }
 
-// StatusOf runs a status pass against an already-loaded manifest.
-//
-// `up` needs this: it re-reads the manifest after syncing the root repo, and must report against
-// that reloaded list rather than load a third copy (spec §7.1).
+// StatusOf runs a status pass against an already-loaded manifest, which `up` needs: it re-reads
+// the manifest after syncing the root repo and reports against that list (spec §7.1).
 func StatusOf(ctx context.Context, env *Env, g Global, opts StatusOptions, m *domain.Manifest) (*StatusResult, error) {
 	selected, skipped, err := Select(m, g, domain.SelectOpts{})
 	if err != nil {
@@ -69,16 +65,15 @@ func StatusOf(ctx context.Context, env *Env, g Global, opts StatusOptions, m *do
 	}
 
 	if !opts.NoDeps {
-		// The dependency tally rides along with the command people actually run every day.
-		// Pain point 4 is that cross-repo drift is invisible, and nobody goes looking for a
-		// command they have forgotten exists (spec §7.2).
+		// The dependency tally rides along with the command run every day, since nobody goes
+		// looking for a command they have forgotten exists (spec §7.2).
 		groups, derr := DepsOf(ctx, env, g, DepsOptions{}, m)
 		if derr == nil {
 			sum := domain.SummarizeDeps(groups)
 			res.Deps = &sum
 		} else {
-			// A dependency scan failing must not fail `status`; the primary answer is still
-			// worth delivering.
+			// CRITICAL: a dependency scan failing must not fail `status`; the primary answer is
+			// still worth delivering.
 			env.Log.Warnf("dependency summary unavailable: %v", derr)
 		}
 	}
@@ -93,8 +88,7 @@ func Observe(ctx context.Context, env *Env, g Global, m *domain.Manifest, repos 
 // observeStage is Observe with an optional progress stage name.
 //
 // commit and push call Observe for a quick local status check and stay silent; only status's own
-// pass -- the one that can involve a real fetch across every repo -- announces itself, so a stage
-// name is opt-in rather than baked into Observe itself.
+// pass (which can fetch across every repo) announces itself, so a stage name is opt-in.
 func observeStage(ctx context.Context, env *Env, g Global, m *domain.Manifest, repos []domain.Repo, fetch bool, stage string) []domain.RepoStatus {
 	fn := func(ctx context.Context, r domain.Repo) domain.RepoStatus {
 		return observeRepo(ctx, env, m, r, fetch)
@@ -147,10 +141,9 @@ func observeRepo(ctx context.Context, env *Env, m *domain.Manifest, r domain.Rep
 
 	if fetch {
 		if err := env.Git.Fetch(ctx, dir, m.EffectiveRemote(r)); err != nil {
-			// The caller asked for live data and could not have it. Reporting the stale numbers
-			// as though they were fresh would be exactly the dishonesty §3.6 rules out, so the
-			// repo is marked failed -- with every local fact still populated below, and a code
-			// that says whether a retry is worth attempting.
+			// CRITICAL: the caller asked for live data and could not have it; reporting stale
+			// numbers as fresh is the dishonesty §3.6 rules out. Mark failed but keep every local
+			// fact below, with a code saying whether a retry is worth attempting.
 			obs, oerr := env.Git.Status(ctx, dir)
 			if oerr == nil {
 				applyObservation(&st, m, r, obs)
@@ -194,10 +187,8 @@ func applyObservation(st *domain.RepoStatus, m *domain.Manifest, r domain.Repo, 
 	}
 }
 
-// annotate attaches the code and the next step for states that need one.
-//
-// Every skipped or unusual repo gets a command the reader can run verbatim. It costs almost
-// nothing to produce and serves both audiences: a human pastes it, an agent executes it (§6.6).
+// annotate attaches the code and next step for states that need one. Every unusual repo gets a
+// runnable command: a human pastes it, an agent executes it (§6.6).
 func annotate(st *domain.RepoStatus) {
 	switch st.State {
 	case domain.StateDetached:
@@ -226,8 +217,8 @@ func failStatus(st domain.RepoStatus, code domain.ErrCode, msg, hint string) dom
 	return st
 }
 
-// fetchHint suggests a next step matched to why the fetch failed. Telling someone to retry an
-// auth failure would be worse than saying nothing.
+// fetchHint suggests a next step matched to why the fetch failed. See retryHint: never suggest
+// retrying an auth failure.
 func fetchHint(code domain.ErrCode, name string) string {
 	switch code {
 	case domain.ErrAuth:

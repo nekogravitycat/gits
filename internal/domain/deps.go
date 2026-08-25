@@ -2,20 +2,13 @@ package domain
 
 import "sort"
 
-// Submodule is one entry from a repo's .gitmodules, paired with the gitlink SHA recorded in HEAD's
-// tree -- that is, the commit this repo currently pins its dependency to.
+// Submodule is one .gitmodules entry paired with the gitlink SHA in HEAD's tree.
 type Submodule struct {
-	// Name is the .gitmodules section name.
-	Name string
-	// Path is where the submodule is checked out inside the dependent repo.
-	Path string
-	// URL is the dependency's remote as the dependent declares it.
-	URL string
-	// Branch is submodule.<name>.branch, if declared. It is the dependent's own statement of
-	// intent about which line of development it tracks.
-	Branch string
-	// SHA is the gitlink commit recorded in HEAD's tree; empty when it could not be read.
-	SHA string
+	Name   string // .gitmodules section name.
+	Path   string // checkout path inside the dependent repo.
+	URL    string // dependency remote as the dependent declares it.
+	Branch string // submodule.<name>.branch if declared.
+	SHA    string // gitlink commit from HEAD's tree; empty when unreadable.
 }
 
 // PinVerdict is the comparison outcome for one pinned SHA against its baseline.
@@ -29,17 +22,14 @@ const (
 	PinUnknown  PinVerdict = "unknown"
 )
 
-// BaselineSource records which of the §7.11 rules chose the comparison branch. It is reported so a
-// surprising verdict can be traced back to the reason its baseline was picked.
+// BaselineSource records which §7.11 rule chose the comparison branch, so a surprising verdict
+// traces to its baseline.
 type BaselineSource string
 
 const (
-	// BaselineDeclared: submodule.<name>.branch in the dependent's own .gitmodules.
-	BaselineDeclared BaselineSource = "declared"
-	// BaselineManifest: the canonical repo's branch field in gits.yaml.
-	BaselineManifest BaselineSource = "manifest"
-	// BaselineDefaults: defaults.branch.
-	BaselineDefaults BaselineSource = "defaults"
+	BaselineDeclared BaselineSource = "declared" // submodule.<name>.branch in .gitmodules.
+	BaselineManifest BaselineSource = "manifest" // canonical repo's branch in gits.yaml.
+	BaselineDefaults BaselineSource = "defaults" // defaults.branch.
 )
 
 // Pin is one dependent repo's dependency on one canonical repo.
@@ -49,9 +39,8 @@ type Pin struct {
 	SHA           string
 
 	// BaselineRef is the remote-tracking ref compared against, e.g. "origin/main".
-	//
-	// Never the canonical checkout's HEAD: the canonical repo is very often sitting on a feature
-	// branch, and using HEAD would make one workspace report different answers on two machines.
+	// CRITICAL: never the canonical checkout's HEAD -- it is often on a feature branch, which would
+	// make one workspace report different answers on two machines.
 	BaselineRef    string
 	BaselineSource BaselineSource
 
@@ -59,8 +48,7 @@ type Pin struct {
 	Ahead   int
 	Behind  int
 
-	// ContainingBranches names branches that contain a diverged SHA, as a hint about which line of
-	// development it came from.
+	// ContainingBranches names branches that contain a diverged SHA.
 	ContainingBranches []string
 
 	Code    ErrCode
@@ -68,9 +56,8 @@ type Pin struct {
 	Hint    string
 }
 
-// DepGroup collects every repo that depends on one dependency, grouped by the dependency rather
-// than by the dependent -- the question being answered is "who is behind on X", not "what does Y
-// pin".
+// DepGroup collects every repo depending on one dependency, grouped by dependency: the question is
+// "who is behind on X", not "what does Y pin".
 type DepGroup struct {
 	// Name is the canonical repo's manifest name, or the normalised URL when no canonical checkout
 	// exists in the workspace.
@@ -78,7 +65,7 @@ type DepGroup struct {
 	URL  string
 
 	// CanonicalPath is the workspace-relative path of the canonical checkout. Empty means the
-	// workspace does not contain the dependency, so the determination is incomplete.
+	// workspace lacks the dependency, so the determination is incomplete.
 	CanonicalPath string
 
 	BaselineRef string
@@ -87,9 +74,7 @@ type DepGroup struct {
 	Pins []Pin
 
 	// Code is E_NO_CANONICAL when no canonical checkout was found.
-	//
-	// Reporting an answer as incomplete matters more than looking complete: a caller acting on a
-	// partial verdict as though it were whole is the failure this field exists to prevent.
+	// CRITICAL: exists to stop a caller acting on a partial verdict as if it were whole.
 	Code    ErrCode
 	Message string
 	Hint    string
@@ -98,8 +83,8 @@ type DepGroup struct {
 // HasCanonical reports whether a canonical checkout backed this group's verdicts.
 func (g DepGroup) HasCanonical() bool { return g.CanonicalPath != "" }
 
-// DistinctSHAs counts how many different commits the dependents pin. Without a canonical checkout
-// to compare against, this disagreement count is the only signal left.
+// DistinctSHAs counts how many different commits the dependents pin. Without a canonical checkout,
+// this disagreement count is the only signal left.
 func (g DepGroup) DistinctSHAs() int {
 	seen := map[string]bool{}
 	for _, p := range g.Pins {
@@ -140,8 +125,7 @@ func SummarizeDeps(groups []DepGroup) DepSummary {
 			case PinUnknown:
 				s.Unknown++
 			case PinUpToDate, PinAhead:
-				// Neither is a problem: "ahead" means the dependent pins work that has not
-				// reached the baseline branch yet, which is normal mid-development.
+				// Neither is a problem: "ahead" is normal mid-development.
 			}
 		}
 	}
@@ -150,11 +134,9 @@ func SummarizeDeps(groups []DepGroup) DepSummary {
 
 // DeriveVerdict turns a two-way commit count into a verdict.
 //
-// Both numbers are required, which is why the ancestry check cannot be skipped. A one-way count
-// returns a plausible number even for a commit that is not an ancestor at all: a SHA that is
-// really "ahead 3, behind 3" reports a bare "3". That reads as "behind 3" and sends the user
-// toward a plain submodule update, which cannot work -- the pin sits on a fork of the line, not
-// behind it (spec §7.11).
+// CRITICAL: both numbers are required -- the ancestry check cannot be skipped. A one-way count
+// reports an "ahead 3, behind 3" fork as a bare "3", which reads as "behind 3" and sends the user
+// to a plain submodule update that cannot work (spec §7.11).
 func DeriveVerdict(ahead, behind int) PinVerdict {
 	switch {
 	case ahead > 0 && behind > 0:
@@ -169,10 +151,8 @@ func DeriveVerdict(ahead, behind int) PinVerdict {
 }
 
 // SortGroups orders dependency groups deterministically across runs and machines.
-//
-// URL breaks ties: a group with no canonical checkout is named after its URL's last segment, and
-// two different dependencies can share one. Without the tiebreak their order would depend on map
-// iteration, and two runs of the same command would not diff cleanly (spec §6.5 rule 2).
+// NOTE: URL breaks name ties (no-canonical groups share URL-basename names); without it order
+// depends on map iteration and two runs would not diff cleanly (spec §6.5 rule 2).
 func SortGroups(groups []DepGroup) {
 	sort.Slice(groups, func(i, j int) bool {
 		if groups[i].Name != groups[j].Name {

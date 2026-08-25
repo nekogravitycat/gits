@@ -16,12 +16,12 @@ func (f Filter) IsEmpty() bool {
 
 // SelectOpts controls the boundaries applied on top of the user's filter.
 type SelectOpts struct {
-	// Write marks a command that mutates a repo or pushes to a remote. Such commands
-	// automatically exclude no-write entries (spec §4).
+	// Write marks a command that mutates a repo or pushes to a remote; such commands automatically
+	// exclude no-write entries (spec §4).
 	Write bool
 
 	// IncludeNoWrite overrides the automatic exclusion. Only `foreach --include-no-write` sets it,
-	// because there the user has explicitly taken responsibility (spec §7.12).
+	// where the user has explicitly taken responsibility (spec §7.12).
 	IncludeNoWrite bool
 }
 
@@ -35,11 +35,9 @@ type Excluded struct {
 // Select resolves the manifest, the user's filter and the command's write boundary into the repos
 // to act on.
 //
-// Ordering follows the manifest, never the filter: output must be deterministic so that diffing two
-// runs is meaningful (spec §6.5 rule 2).
-//
-// Disabled repos vanish entirely -- they are not returned and not reported as skipped, because on
-// this machine they are simply not part of the workspace (spec §5.5).
+// NOTE: ordering follows the manifest, never the filter, so diffing two runs is meaningful
+// (spec §6.5 rule 2). Disabled repos vanish entirely -- not returned, not reported skipped -- as
+// on this machine they are not part of the workspace (spec §5.5).
 func (m *Manifest) Select(f Filter, opts SelectOpts) (selected []Repo, skipped []Excluded) {
 	groups := toSet(f.Groups)
 	names := toSet(f.Repos)
@@ -67,9 +65,8 @@ func (m *Manifest) Select(f Filter, opts SelectOpts) (selected []Repo, skipped [
 }
 
 // UnknownSelectors returns the -r/--exclude names that match no manifest entry.
-//
-// A typo in `gits push -r roulete-drawer` must not be read as "nothing to push, all good": that is
-// a silent no-op where the user expected an action.
+// CRITICAL: a typo like `gits push -r roulete-drawer` must not be read as a silent no-op where the
+// user expected an action.
 func (m *Manifest) UnknownSelectors(f Filter) []string {
 	known := map[string]bool{}
 	for _, r := range m.Repos {

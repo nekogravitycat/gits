@@ -2,26 +2,22 @@ package domain
 
 import "strings"
 
-// NormalizeURL reduces a git remote URL to a comparable identity: lowercase host plus repository
-// path, with scheme, credentials, port and a trailing ".git" removed.
+// NormalizeURL reduces a git remote URL to a comparable identity: lowercase host plus repo path,
+// with scheme, credentials, port and trailing ".git" removed.
 //
-// This is a hard requirement rather than defensive coding (spec §7.11). The same submodule is
-// routinely referenced three different ways across a workspace --
-// "ssh://git@host:24/a/b.git", "https://host/a/b.git" and "https://host/a/b" -- and canonical
-// resolution has to see them as one repository. Matching on the submodule's *path* is not an
-// option either: eight of nine dependents call the same submodule "proto".
-//
-// An unrecognisable URL is returned trimmed and folded rather than rejected: two identical
-// unparseable strings should still match each other.
+// CRITICAL: this is required for canonical resolution (spec §7.11), not defensive -- the same
+// submodule is routinely referenced as ssh/https/with-or-without-.git and must resolve to one
+// repository; matching on submodule *path* is not an option (many dependents reuse one path name).
+// An unrecognisable URL is trimmed and folded, not rejected, so two identical unparseable strings
+// still match.
 func NormalizeURL(raw string) string {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return ""
 	}
 
-	// A local path on Windows is checked first, because "C:/repos/proto.git" otherwise looks
-	// exactly like scp syntax and would be read as host "C" with path "/repos/proto.git" --
-	// producing an identity that matches nothing and reads as nonsense in a report.
+	// CRITICAL: check Windows local paths first -- "C:/repos/proto.git" otherwise parses as scp
+	// syntax (host "C") and produces an identity that matches nothing.
 	if isWindowsPath(s) {
 		p := strings.ReplaceAll(s, `\`, "/")
 		p = strings.ToLower(p[:2]) + strings.TrimSuffix(strings.TrimRight(p[2:], "/"), ".git")
@@ -32,8 +28,8 @@ func NormalizeURL(raw string) string {
 		s = s[idx+3:]
 		s = stripCredentials(s)
 	} else {
-		// scp-like syntax has no scheme: [user@]host:path. It is handled separately so that
-		// "git@host:a/b.git" is not mistaken for a URL whose scheme is "git@host".
+		// scp-like syntax [user@]host:path has no scheme; handled separately so "git@host:a/b.git"
+		// is not read as scheme "git@host".
 		s = stripCredentials(s)
 		if colon := strings.Index(s, ":"); colon >= 0 {
 			s = s[:colon] + "/" + s[colon+1:]
@@ -41,7 +37,7 @@ func NormalizeURL(raw string) string {
 	}
 
 	host, repoPath, _ := strings.Cut(s, "/")
-	// Strip the port: a repo served on :24 and on the default port is the same repo.
+	// Strip the port: same repo on :24 and on the default port.
 	if colon := strings.LastIndex(host, ":"); colon >= 0 {
 		host = host[:colon]
 	}
@@ -58,8 +54,8 @@ func NormalizeURL(raw string) string {
 	return host + "/" + repoPath
 }
 
-// stripCredentials removes a leading "user@" or "user:password@" from an authority.
-// An "@" that appears after the first "/" belongs to the path and is left alone.
+// stripCredentials removes a leading "user@" or "user:password@" from an authority. An "@" after
+// the first "/" belongs to the path and is left alone.
 func stripCredentials(s string) string {
 	slash := strings.Index(s, "/")
 	at := strings.Index(s, "@")
@@ -78,11 +74,8 @@ func SameRepoURL(a, b string) bool {
 	return na != "" && na == nb
 }
 
-// isWindowsPath reports whether s looks like a drive-letter path such as "C:/repos/x" or
-// `C:\repos\x`.
-//
-// The check requires a separator after the colon, which is what distinguishes it from scp syntax:
-// "C:/repos/x" is a path, while "host:repos/x" is a remote.
+// isWindowsPath reports whether s looks like a drive-letter path ("C:/repos/x" or `C:\repos\x`).
+// The required separator after the colon distinguishes it from scp syntax ("host:repos/x").
 func isWindowsPath(s string) bool {
 	if len(s) < 3 || s[1] != ':' {
 		return false
@@ -94,12 +87,9 @@ func isWindowsPath(s string) bool {
 	return s[2] == '/' || s[2] == '\\'
 }
 
-// DisplayName derives a short, human-readable label for a repository URL: its last path segment
-// without the ".git" suffix.
-//
-// It is used only where no manifest entry exists to supply a real name -- a dependency the
-// workspace does not contain. The full URL is always reported alongside, since a basename alone is
-// not unique.
+// DisplayName derives a short label from a repo URL: its last path segment without ".git". Used
+// only where no manifest entry supplies a real name; the full URL is reported alongside since a
+// basename is not unique.
 func DisplayName(rawURL string) string {
 	normalized := NormalizeURL(rawURL)
 	if normalized == "" {

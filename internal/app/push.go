@@ -16,8 +16,8 @@ type PushOptions struct {
 
 // PushResult is one push run.
 type PushResult struct {
-	// Planned lists what will be, or would have been, pushed. It is populated before anything is
-	// sent so the confirmation prompt and --dry-run describe the same plan that then executes.
+	// Planned lists what will be (or would have been) pushed. Populated before anything is sent so
+	// the confirmation prompt and --dry-run describe the same plan that then executes.
 	Planned []RepoResult
 	Repos   []RepoResult
 	Skipped []domain.Excluded
@@ -27,8 +27,8 @@ type PushResult struct {
 
 // Push publishes every repo that is ahead of its upstream (spec §7.4).
 //
-// no-write repos are excluded automatically, and there is deliberately no force push in v1: a
-// caller who needs one can cd into the repo, where the consequences are at least local and visible.
+// no-write repos are excluded automatically. No force push in v1: a caller who needs one can cd
+// into the repo, where the consequences are local and visible.
 func Push(ctx context.Context, env *Env, g Global, opts PushOptions) (*PushResult, error) {
 	m, err := env.LoadManifest()
 	if err != nil {
@@ -39,7 +39,7 @@ func Push(ctx context.Context, env *Env, g Global, opts PushOptions) (*PushResul
 		return nil, err
 	}
 
-	// Every repo is inspected first, so the plan shown to the user is the plan that runs.
+	// Every repo is inspected first, so the plan shown is the plan that runs.
 	statuses := Observe(ctx, env, g, m, selected, false)
 
 	res := &PushResult{Skipped: skipped, DryRun: g.DryRun}
@@ -58,14 +58,13 @@ func Push(ctx context.Context, env *Env, g Global, opts PushOptions) (*PushResul
 	}
 
 	if len(toPush) == 0 {
-		// Nothing to do is a success, not an error: it is exactly what a second run of push
-		// should report (spec §6.11).
+		// Nothing to do is a success: exactly what a second run of push should report (spec §6.11).
 		res.Repos = res.Planned
 		res.Summary = SummarizeResults(res.Repos, len(skipped))
 		return res, nil
 	}
 
-	// Pushing is outward-facing and visible to everyone else, so it is confirmed by default.
+	// Pushing is outward-facing and visible to everyone else, so confirm by default.
 	if err := env.Confirm(g, "push", pushQuestion(toPush)); err != nil {
 		return nil, err
 	}
@@ -79,8 +78,8 @@ func Push(ctx context.Context, env *Env, g Global, opts PushOptions) (*PushResul
 		return pushRepo(ctx, env, m, r, plannedFor(res.Planned, r.Name), opts)
 	})
 
-	// Splice the executed outcomes back into the planned list so that skipped repos stay visible
-	// in the report rather than vanishing from it.
+	// Splice executed outcomes back into the planned list so skipped repos stay visible in the
+	// report rather than vanishing.
 	byName := map[string]RepoResult{}
 	for _, e := range executed {
 		byName[e.Name] = e
@@ -123,8 +122,8 @@ func planPush(m *domain.Manifest, r domain.Repo, st domain.RepoStatus, opts Push
 		return out
 
 	case domain.StateNoUpstream:
-		// Only push a branch with no upstream when the user has actually asked for it; creating a
-		// remote branch is not something to do on a guess.
+		// Only push a branch with no upstream when explicitly asked; creating a remote branch is
+		// not something to do on a guess.
 		if !opts.SetUpstream {
 			out.Action, out.Code = ActionSkipped, domain.ErrNoUpstream
 			out.Message = "branch has no upstream"
@@ -136,8 +135,8 @@ func planPush(m *domain.Manifest, r domain.Repo, st domain.RepoStatus, opts Push
 		return out
 
 	case domain.StateClean, domain.StateDirty, domain.StateBehind:
-		// Uncommitted work is irrelevant to pushing, and being behind only matters if we are also
-		// ahead -- which is the diverged case, already handled.
+		// Uncommitted work is irrelevant to pushing; being behind only matters if also ahead --
+		// the diverged case, already handled.
 		return out
 
 	case domain.StateAhead:

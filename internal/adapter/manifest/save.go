@@ -14,7 +14,7 @@ import (
 	"github.com/nekogravitycat/gits/internal/domain"
 )
 
-// yamlIndent matches the two-space style of the manifest gits itself writes.
+// yamlIndent matches the two-space style gits itself writes.
 const yamlIndent = 2
 
 // YAML resolved tags for the node kinds this file constructs.
@@ -32,9 +32,8 @@ func str(value string) *yaml.Node {
 
 // Create writes a fresh manifest, refusing to overwrite an existing one.
 //
-// The file is written as text rather than marshalled from a struct so that the explanatory
-// comments are exactly what a first-time reader needs. Everything after this goes through the Node
-// API, which preserves whatever the user then writes in here.
+// Written as text (not marshalled) so the seeded explanatory comments are exactly what a
+// first-time reader needs; every later write goes through the Node API, which preserves them.
 func (s *Store) Create(workspace string, m *domain.Manifest) error {
 	path := filepath.Join(workspace, app.ManifestName)
 	if _, err := os.Stat(path); err == nil {
@@ -69,8 +68,8 @@ func (s *Store) Create(workspace string, m *domain.Manifest) error {
 	}
 	for i, r := range m.Repos {
 		if i > 0 {
-			// One blank line between entries, matching what encodeManifest re-imposes on every
-			// later write. A fresh manifest is therefore already formatted.
+			// Blank line between entries, matching encodeManifest's re-imposed layout, so a fresh
+			// manifest is already canonical.
 			b.WriteString("\n")
 		}
 		writeEntryText(&b, r)
@@ -79,8 +78,9 @@ func (s *Store) Create(workspace string, m *domain.Manifest) error {
 	return writeFileAtomic(path, b.Bytes())
 }
 
-// writeEntryText renders one entry as text, in entryKeyOrder. Keep the two in step: `gits fmt` is
-// a no-op on a manifest gits wrote, and that promise is what makes it safe in a pre-commit hook.
+// writeEntryText renders one entry as text in entryKeyOrder. CRITICAL: keep in step with
+// buildEntryNode/encodeManifest so `gits fmt` stays a no-op on a gits-written manifest, which is
+// what makes it safe in a pre-commit hook.
 func writeEntryText(b *bytes.Buffer, r domain.Repo) {
 	fmt.Fprintf(b, "  - name: %s\n", r.Name)
 	if r.Path != "" {
@@ -89,8 +89,8 @@ func writeEntryText(b *bytes.Buffer, r domain.Repo) {
 	if r.URL != "" {
 		fmt.Fprintf(b, "    url: %s\n", r.URL)
 	} else {
-		// Written anyway, with the gap marked. Dropping the entry would leave the repo invisible
-		// to the manifest, which is the drift this file exists to prevent (spec §7.7).
+		// CRITICAL: emit url anyway with the gap marked; dropping the entry hides the repo from
+		// the manifest, the drift this file exists to prevent (spec §7.7).
 		b.WriteString("    url: \"\"   # TODO: no origin remote found; fill this in\n")
 	}
 	if r.Branch != "" {
@@ -112,10 +112,8 @@ func writeEntryText(b *bytes.Buffer, r domain.Repo) {
 
 // AddRepo inserts or updates one entry, keeping the rest of the file byte-for-byte intact.
 //
-// Insertion is in name order, never an append. Two machines that each add a repo would otherwise
-// produce two insertions at the same spot in the file: a guaranteed conflict, and the most
-// tedious kind of YAML conflict to resolve by hand. Sorted insertion usually puts them in
-// different places, and git merges them without anyone noticing (spec §5.2, §10.1).
+// CRITICAL: insertion is in name order, never an append (spec §5.2, §10.1); appending makes two
+// machines' adds collide at the same spot every time.
 func (s *Store) AddRepo(workspace string, repo domain.Repo, update bool) (app.Written, error) {
 	path := filepath.Join(workspace, app.ManifestName)
 
@@ -159,12 +157,11 @@ func (s *Store) AddRepo(workspace string, repo domain.Repo, update bool) (app.Wr
 
 	if idx := indexOfName(repos, repo.Name); idx >= 0 {
 		if !update {
-			// Already present with the same contents: a no-op with exit 0, which is what lets a
-			// setup script re-run without special-casing "already done" (spec §6.11).
+			// Identical contents: no-op with exit 0 so a setup script can re-run safely (spec §6.11).
 			return app.Written{NoOp: true}, nil
 		}
-		// Carry the existing entry's comments onto the replacement: they explain decisions about
-		// this repo, and rewriting a field is no reason to lose them.
+		// Carry existing comments onto the replacement; they explain per-repo decisions and a
+		// field rewrite is no reason to lose them.
 		entry.HeadComment = repos.Content[idx].HeadComment
 		entry.FootComment = repos.Content[idx].FootComment
 		repos.Content[idx] = entry
@@ -207,8 +204,8 @@ func indexOfName(repos *yaml.Node, name string) int {
 
 // buildEntryNode renders one repo as a YAML mapping node.
 //
-// Only fields the user actually set are emitted. Materialising an inherited default would turn
-// "follows defaults.branch" into "pinned to main", quietly changing what the entry means.
+// Only fields the user set are emitted; materialising an inherited default would silently turn
+// "follows defaults.branch" into a pin.
 func buildEntryNode(r domain.Repo) *yaml.Node {
 	entry := &yaml.Node{Kind: yaml.MappingNode, Tag: tagMap}
 	put := func(key, value string) {
@@ -251,11 +248,11 @@ func encodeAndWrite(path string, doc *yaml.Node) error {
 	return writeFileAtomic(path, data)
 }
 
-// writeFileAtomic writes through a temporary file in the same directory, then renames.
+// writeFileAtomic writes to a temp file in the same directory, then renames.
 //
-// The manifest is the one file whose loss would leave the workspace unusable, and a crash or a
-// full disk partway through a direct write would truncate it. Renaming within a directory is
-// atomic, so a reader sees either the old file or the new one.
+// CRITICAL: the manifest's loss leaves the workspace unusable; a direct write truncated by a crash
+// or full disk would destroy it. Rename within a directory is atomic, so a reader sees either the
+// old or the new file whole.
 func writeFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
@@ -273,8 +270,8 @@ func writeFileAtomic(path string, data []byte) error {
 	if _, err := tmp.Write(data); err != nil {
 		return fail(err)
 	}
-	// Flush to disk before the rename: a rename that beats the data to disk can leave an empty
-	// file behind after a power loss.
+	// CRITICAL: fsync before rename; a rename that beats data to disk can leave an empty file
+	// after power loss.
 	if err := tmp.Sync(); err != nil {
 		return fail(err)
 	}
@@ -282,8 +279,8 @@ func writeFileAtomic(path string, data []byte) error {
 		return fail(err)
 	}
 
-	// Windows will not rename onto an existing file, so the old one goes first. The temp file is
-	// already safely on disk at this point.
+	// NOTE: Windows won't rename onto an existing file, so remove the old one first; the temp is
+	// already safely on disk.
 	if err := os.Rename(tmpName, path); err != nil {
 		if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
 			return fail(err)

@@ -10,9 +10,8 @@ import (
 
 // ForeachOutputLimit caps each captured stream at 8KB (spec §7.12).
 //
-// The cap exists for the agent caller: eighteen repos each returning an unbounded log can exhaust
-// a context window in a single call. Truncation is always flagged, so a reader knows the output
-// was cut rather than silently assuming it was short.
+// NOTE: bounds output for agent callers -- many repos returning unbounded logs can exhaust a
+// context window. Truncation is always flagged so a reader knows output was cut.
 const ForeachOutputLimit = 8 << 10
 
 // ForeachOptions are the flags specific to `gits foreach` (spec §7.12).
@@ -22,7 +21,7 @@ type ForeachOptions struct {
 
 	// IncludeNoWrite opts a run into touching no-write repos.
 	//
-	// Required because the command is opaque to gits: there is no way to tell `git log` from
+	// CRITICAL: required because the command is opaque -- gits cannot tell `git log` from
 	// `git reset --hard`, so every foreach is treated as a write (spec §7.12).
 	IncludeNoWrite bool
 }
@@ -63,9 +62,8 @@ func (r *ForeachResult) Failed() bool {
 
 // Foreach runs an arbitrary command across the workspace (spec §7.12).
 //
-// This is the escape hatch for everything gits does not wrap. It matters most to agents: without
-// it, an agent has to assemble its own `cd X && git ...` for every repo, losing the filtering,
-// the concurrency, the timeouts and the error classification in one step.
+// The escape hatch for everything gits does not wrap; gives agents filtering, concurrency,
+// timeouts and error classification for free.
 func Foreach(ctx context.Context, env *Env, g Global, opts ForeachOptions) (*ForeachResult, error) {
 	if len(opts.Args) == 0 {
 		return nil, Usagef(domain.ErrManifest, "foreach needs a command to run").
@@ -133,8 +131,8 @@ func runOne(ctx context.Context, env *Env, r domain.Repo, args []string) Foreach
 
 	code, stdout, stderr, err := env.Git.Run(ctx, env.Dir(r), args)
 	if err != nil {
-		// gits could not run the command at all, which is a different failure from the command
-		// running and reporting an error.
+		// CRITICAL: err means gits could not run the command at all -- distinct from the command
+		// running and reporting a non-zero exit.
 		out.ExitCode = -1
 		out.Code = CodeOf(err)
 		out.Message = MessageOf(err)
@@ -157,15 +155,7 @@ func truncate(s string) (string, bool) {
 }
 
 func sortForeach(outputs []ForeachOutput, order []domain.Repo) {
-	rank := make(map[string]int, len(order))
-	for i, r := range order {
-		rank[r.Name] = i
-	}
-	for i := 1; i < len(outputs); i++ {
-		for j := i; j > 0 && rank[outputs[j].Name] < rank[outputs[j-1].Name]; j-- {
-			outputs[j], outputs[j-1] = outputs[j-1], outputs[j]
-		}
-	}
+	sortByManifest(outputs, order, func(o ForeachOutput) string { return o.Name })
 }
 
 func foreachQuestion(args []string, repos []domain.Repo) string {

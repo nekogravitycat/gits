@@ -25,10 +25,9 @@ type UpResult struct {
 	Status *StatusResult
 }
 
-// Up is the everyday verb: bring the whole workspace up to date, then say where things stand
-// (spec §7.1).
+// Up is the everyday verb: bring the whole workspace up to date, then report (spec §7.1).
 //
-// The stage order is part of the contract, not an implementation detail:
+// The stage order is part of the contract:
 //
 //  1. sync the root repo, because the manifest lives inside it;
 //  2. reload the manifest, since the repo list may have just changed;
@@ -36,9 +35,8 @@ type UpResult struct {
 //  4. sync everything else;
 //  5. report.
 //
-// Steps 1 and 2 are what make pain point 3 actually solvable. Without them, a repo added on
-// another machine last night never appears today -- the file that records it has not been pulled
-// yet.
+// CRITICAL: steps 1-2 are why a repo added on another machine appears here at all -- the file that
+// records it must be pulled before it is visible.
 func Up(ctx context.Context, env *Env, g Global, opts UpOptions) (*UpResult, error) {
 	m, err := env.LoadManifest()
 	if err != nil {
@@ -66,7 +64,7 @@ func Up(ctx context.Context, env *Env, g Global, opts UpOptions) (*UpResult, err
 	res.Sync = syncRes
 
 	// The closing status pass is not redundant with the sync report: it answers "where does the
-	// workspace stand now", including the repos sync deliberately left alone.
+	// workspace stand now", including repos sync deliberately left alone.
 	statusRes, err := StatusOf(ctx, env, g, StatusOptions{NoDeps: opts.NoDeps}, m)
 	if err != nil {
 		return nil, err

@@ -1,3 +1,13 @@
+// Architecture Note
+//
+//   - gits shells out to the real git binary rather than reimplementing git; credential
+//     helpers, GPG signing, hooks and includeIf then behave exactly as under the user's own
+//     git (spec §10).
+//   - CRITICAL: git spawns children (ssh, credential helpers, hooks) that inherit the output
+//     pipes; killing only git leaves them holding those pipes and turns a timeout into a hang.
+//     Every subprocess runs in its own process group and is killed tree-wide.
+//   - CRITICAL: hardenedEnv converts interactive prompts into immediate failures; without it a
+//     machine with no credential helper blocks forever on "Username for ...".
 package git
 
 import (
@@ -14,11 +24,6 @@ import (
 )
 
 // Runner executes git subprocesses under a hardened, non-interactive environment.
-//
-// gits shells out to the real git binary rather than reimplementing git in Go. That is a
-// deliberate choice (spec §10): credential helpers, GPG signing programs, hooks and includeIf
-// rules then behave exactly as they do when the user runs git themselves, with no second
-// implementation to drift.
 type Runner struct {
 	// GitPath is the git executable; empty means "git" from PATH.
 	GitPath string
@@ -28,10 +33,10 @@ type Runner struct {
 	Log app.Logger
 }
 
-// waitDelay is how long to wait, after a kill, for inherited pipes to close.
+// waitDelay bounds how long Wait blocks for inherited pipes to close after a kill.
 //
-// Without it a killed git whose grandchild still holds the output pipe leaves gits blocked in
-// Wait -- turning a timeout into precisely the hang the timeout existed to prevent.
+// CRITICAL: without it a killed git whose grandchild still holds the output pipe leaves gits
+// blocked in Wait -- the exact hang the timeout exists to prevent.
 const waitDelay = 2 * time.Second
 
 // result is one completed subprocess.
@@ -42,24 +47,19 @@ type result struct {
 }
 
 // hardenedEnv builds the environment every git subprocess runs under (spec §6.8).
-//
-// Bounding gits' own prompts is not enough: git will happily open its own. On a machine with no
-// credential helper -- a container, CI, a freshly installed laptop -- `git fetch` stops at
-// "Username for 'https://...':" and waits forever. These variables convert that wait into an
-// immediate, classifiable failure.
 func hardenedEnv() []string {
 	env := os.Environ()
 
 	// Fail instead of prompting on the terminal.
 	env = append(env, "GIT_TERMINAL_PROMPT=0")
-	// Empty rather than unset: an empty askpass suppresses the GUI credential dialog, which would
-	// otherwise block a "non-interactive" run behind a window nobody is looking at.
+	// CRITICAL: empty (not unset) askpass suppresses the GUI credential dialog; unset would let a
+	// "non-interactive" run block behind a window nobody is looking at.
 	env = append(env, "GIT_ASKPASS=", "SSH_ASKPASS=")
-	// Read-only work must not contend for index.lock with an editor or a language server.
+	// Read-only work must not contend for index.lock with an editor or language server.
 	env = append(env, "GIT_OPTIONAL_LOCKS=0")
 
-	// Only supply a batch-mode ssh when the user has not configured their own command; overriding
-	// a deliberate GIT_SSH_COMMAND would break setups that rely on it.
+	// Only supply batch-mode ssh when the user has not set their own; overriding a deliberate
+	// GIT_SSH_COMMAND would break setups that rely on it.
 	if os.Getenv("GIT_SSH_COMMAND") == "" {
 		env = append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
 	}
@@ -73,9 +73,9 @@ func baseArgs() []string {
 
 // exec runs git (or, for foreach, an arbitrary command) and captures its output.
 //
-// A non-zero exit is reported in the result, not as an error: err is reserved for gits failing to
-// run the command at all. The two need different handling, and conflating them would make a failing
-// `git log` indistinguishable from a missing git binary.
+// CRITICAL: a non-zero exit is reported in result.exitCode, not as err; err is reserved for gits
+// failing to run the command at all. Conflating them makes a failing `git log` indistinguishable
+// from a missing git binary.
 func (r *Runner) exec(ctx context.Context, dir string, name string, args []string) (result, error) {
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -92,12 +92,11 @@ func (r *Runner) exec(ctx context.Context, dir string, name string, args []strin
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// Nothing may read from the terminal: a subprocess that inherits stdin can block on it even
+	// CRITICAL: nil stdin so nothing can read from the terminal; an inherited stdin can block even
 	// with prompting disabled.
 	cmd.Stdin = nil
 
-	// Kill the whole process tree, not just git. git delegates to ssh, credential helpers and
-	// hooks; killing only the parent leaves those running and holding the output pipes.
+	// CRITICAL: kill the whole process tree (see Architecture Note), not just git.
 	configureProcessGroup(cmd)
 	cmd.Cancel = func() error { return killProcessTree(cmd) }
 	cmd.WaitDelay = waitDelay
@@ -118,8 +117,7 @@ func (r *Runner) exec(ctx context.Context, dir string, name string, args []strin
 		return res, nil
 
 	case ctx.Err() != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
-		// A stuck pre-commit hook is the everyday case here. Without a ceiling there is none at
-		// all, and the caller waits indefinitely for a process that will never finish (§6.8).
+		// Timeout, e.g. a stuck pre-commit hook: without a ceiling the caller waits forever (§6.8).
 		return res, &app.GitError{
 			Code:   domain.ErrTimeout,
 			Args:   args,

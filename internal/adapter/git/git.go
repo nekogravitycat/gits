@@ -1,8 +1,14 @@
 // Package git implements the app layer's git ports by driving the real git executable.
 //
-// Nothing in here makes policy decisions: it runs commands, parses their output and classifies
-// their failures. What the results mean lives in internal/domain and internal/app, which is why
-// those can be tested without git installed at all.
+// Architecture Note
+//
+//   - This layer runs commands, parses output and classifies failures; it makes no policy
+//     decisions. Meaning lives in internal/domain and internal/app, which are testable without
+//     git installed.
+//   - Submodule pins are read from the committed tree/gitlink, never the checked-out worktree:
+//     the worktree may be on something else, but the pin is what other machines get (spec §7.11).
+//   - A gitQuiet non-zero exit is a legitimate answer (missing ref, no origin, no HEAD tree), not
+//     an error to propagate.
 package git
 
 import (
@@ -30,12 +36,10 @@ var _ app.Git = (*Adapter)(nil)
 
 // IsRepo reports whether dir is the root of a git worktree.
 //
-// The ".git" check comes first and is not just an optimisation. Asking git alone would report true
-// for any plain subdirectory of a repo -- and since a workspace root is very often a repo itself,
-// every ordinary folder under it would be mistaken for a managed repo.
+// CRITICAL: the .git check must come first; git alone reports true for any subdirectory of a repo,
+// so every folder under a workspace-root-that-is-itself-a-repo would be mistaken for a repo.
 func (a *Adapter) IsRepo(ctx context.Context, dir string) (bool, error) {
-	// A worktree or submodule checkout has .git as a file rather than a directory, so only
-	// existence is checked, not its type. Its absence is the answer "not a repo", not a failure.
+	// Worktrees/submodules store .git as a file, so test existence only, not type.
 	if !pathExists(filepath.Join(dir, ".git")) {
 		return false, nil
 	}
@@ -54,8 +58,8 @@ func (a *Adapter) Status(ctx context.Context, dir string) (app.RepoObservation, 
 	}
 	obs := parseStatus(out)
 
-	// A submodule that matches its gitlink produces no status record, so the declaration file is
-	// the only reliable answer to "does this repo have submodules at all".
+	// A submodule matching its gitlink emits no status record, so .gitmodules is the only reliable
+	// answer to "does this repo have submodules at all".
 	if pathExists(filepath.Join(dir, ".gitmodules")) {
 		obs.HasSubmodules = true
 	}
@@ -69,8 +73,7 @@ func (a *Adapter) RemoteURL(ctx context.Context, dir, remote string) (string, er
 		return "", err
 	}
 	if code != 0 {
-		// A repo without an origin is a normal thing to find, not an error to propagate.
-		return "", nil
+		return "", nil // no origin is normal, not an error
 	}
 	return strings.TrimSpace(out), nil
 }
@@ -89,9 +92,8 @@ func (a *Adapter) ListSubmodules(ctx context.Context, dir string) ([]domain.Subm
 		return nil, nil
 	}
 
-	// One ls-tree limited by pathspec, rather than one call per submodule. The gitlink is read
-	// from the committed tree, not from the checked-out submodule: the worktree may be sitting on
-	// something else entirely, while the pin is what every other machine will get.
+	// One ls-tree limited by pathspec rather than one call per submodule; gitlink read from the
+	// committed tree (see Architecture Note).
 	args := []string{"ls-tree", "-r", "HEAD", "--"}
 	for _, s := range subs {
 		args = append(args, s.Path)
@@ -101,7 +103,7 @@ func (a *Adapter) ListSubmodules(ctx context.Context, dir string) ([]domain.Subm
 		return nil, err
 	}
 	if code != 0 {
-		// A repo with no commits yet has no HEAD tree; the declarations are still worth returning.
+		// No commits yet means no HEAD tree; the declarations are still worth returning.
 		return subs, nil
 	}
 
@@ -114,15 +116,14 @@ func (a *Adapter) ListSubmodules(ctx context.Context, dir string) ([]domain.Subm
 
 // ResolveRef resolves a ref to a commit SHA, reporting ok=false when it does not exist.
 func (a *Adapter) ResolveRef(ctx context.Context, dir, ref string) (string, bool, error) {
-	// The ^{commit} peel makes an annotated tag resolve to the commit it points at rather than to
-	// the tag object, so comparisons downstream are always commit-to-commit.
+	// CRITICAL: the ^{commit} peel forces annotated tags to their commit, keeping downstream
+	// comparisons commit-to-commit rather than tag-object-to-commit.
 	out, code, err := a.runner.gitQuiet(ctx, dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 	if err != nil {
 		return "", false, err
 	}
 	if code != 0 {
-		// A remote-tracking branch that was never fetched is missing, not broken.
-		return "", false, nil
+		return "", false, nil // an unfetched remote-tracking branch is missing, not broken
 	}
 	return strings.TrimSpace(out), true, nil
 }
@@ -138,10 +139,9 @@ func (a *Adapter) CommitExists(ctx context.Context, dir, sha string) (bool, erro
 
 // CountAheadBehind returns the two-way commit count between a and b.
 //
-// The three-dot form with --left-right is required, not a stylistic choice. The one-way
-// `rev-list --count a..b` returns a number even when a is not an ancestor of b at all, so a pin
-// that is really "ahead 3, behind 3" comes back as a bare "3" -- read as "behind 3", which points
-// the user at a fast-forward that cannot work (spec §7.11).
+// CRITICAL: the three-dot form with --left-right is required; one-way `a..b` returns a bare count
+// even when a is not an ancestor of b, so "ahead 3, behind 3" reads as "behind 3" and points the
+// user at an impossible fast-forward (spec §7.11).
 func (a *Adapter) CountAheadBehind(ctx context.Context, dir, left, right string) (int, int, error) {
 	out, err := a.runner.git(ctx, dir, "rev-list", "--left-right", "--count", left+"..."+right)
 	if err != nil {
@@ -182,8 +182,7 @@ func (a *Adapter) Diff(ctx context.Context, dir string) (string, error) {
 
 // IsIgnored reports whether git would ignore a workspace-relative path.
 func (a *Adapter) IsIgnored(ctx context.Context, dir, relPath string) (bool, error) {
-	// check-ignore exits 0 when the path is ignored, 1 when it is not, and 128 on a real error --
-	// so exit status is the answer here, not a failure.
+	// check-ignore: exit 0 = ignored, 1 = not, 128 = real error. Exit status is the answer here.
 	_, code, err := a.runner.gitQuiet(ctx, dir, "check-ignore", "-q", relPath)
 	if err != nil {
 		return false, err
@@ -193,16 +192,15 @@ func (a *Adapter) IsIgnored(ctx context.Context, dir, relPath string) (bool, err
 
 // Fetch updates remote-tracking refs and prunes deleted ones.
 func (a *Adapter) Fetch(ctx context.Context, dir, remote string) error {
-	// --prune keeps stale remote-tracking branches from being reported as real ones after the
-	// upstream branch is deleted.
+	// --prune stops deleted upstream branches from being reported as real remote-tracking ones.
 	_, err := a.runner.git(ctx, dir, "fetch", "--prune", remote)
 	return err
 }
 
 // MergeFFOnly fast-forwards the current branch, refusing anything else.
 func (a *Adapter) MergeFFOnly(ctx context.Context, dir, ref string) error {
-	// --ff-only is the whole safety story for sync: git refuses rather than creating a merge
-	// commit or a conflicted worktree across eighteen repos (spec §7.3).
+	// CRITICAL: --ff-only is the whole safety story for sync; it refuses rather than creating a
+	// merge commit or conflicted worktree across many repos (spec §7.3).
 	_, err := a.runner.git(ctx, dir, "merge", "--ff-only", ref)
 	return err
 }
@@ -225,14 +223,12 @@ func (a *Adapter) Clone(ctx context.Context, url, dir, branch string, withSubmod
 		args = append(args, "--branch", branch)
 	}
 	if withSubmodules {
-		// Recursing during the clone is one round trip instead of two, and leaves no window in
-		// which the checkout exists with empty submodule directories.
+		// One round trip, and no window where the checkout exists with empty submodule dirs.
 		args = append(args, "--recurse-submodules")
 	}
 	args = append(args, url, dir)
 
-	// Run from the parent directory, which was just created: git resolves the absolute target
-	// itself, but the working directory of a subprocess still has to exist.
+	// CRITICAL: run from parent (just created) -- a subprocess's working directory must exist.
 	_, err := a.runner.git(ctx, parent, args...)
 	return err
 }
@@ -247,11 +243,9 @@ func (a *Adapter) Commit(ctx context.Context, dir, message string, addUntracked 
 			return "", err
 		}
 	} else {
-		// -a stages tracked modifications only. Untracked files stay out, so local config and
-		// build output are never swept into a commit nobody looked at (spec §7.5).
-		//
-		// No --no-verify anywhere: hooks, signing and the editor stay exactly as the repo
-		// configures them, and a hook that rejects the commit is reported as E_HOOK_FAILED.
+		// -a stages tracked modifications only, keeping local config and build output out of the
+		// commit (spec §7.5). No --no-verify: hooks/signing/editor stay as configured; a rejecting
+		// hook surfaces as E_HOOK_FAILED.
 		if _, err := a.runner.git(ctx, dir, "commit", "-a", "-m", message); err != nil {
 			return "", err
 		}
@@ -270,7 +264,7 @@ func (a *Adapter) Push(ctx context.Context, dir, remote, branch string, setUpstr
 	if setUpstream {
 		args = append(args, "-u")
 	}
-	// Never --force, in any spelling: v1 does not offer it at all, so an accidental history
+	// CRITICAL: never --force in any spelling; v1 does not offer it, so an accidental history
 	// rewrite cannot originate here (spec §7.4).
 	args = append(args, remote, branch)
 	_, err := a.runner.git(ctx, dir, args...)

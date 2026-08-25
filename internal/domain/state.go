@@ -1,10 +1,8 @@
 package domain
 
-// RepoState is the single enum an agent can branch on without re-deriving a verdict from five
-// booleans (spec §6.5 rule 1).
-//
-// The raw fields (ahead/behind/dirty) are always emitted alongside it, so collapsing to one state
-// never loses information.
+// RepoState is the single enum an agent branches on instead of re-deriving a verdict from five
+// booleans (spec §6.5 rule 1). Raw fields (ahead/behind/dirty) are always emitted alongside it,
+// so collapsing to one state loses no information.
 type RepoState string
 
 const (
@@ -20,12 +18,11 @@ const (
 	StateError      RepoState = "error"
 )
 
-// statePriority orders states from "most needs a human" to "nothing to do", exactly as fixed by
-// spec §6.5:
+// statePriority orders states most-urgent to least, per the fixed §6.5 ordering:
 //
 //	error > not-a-repo > missing > detached > no-upstream > diverged > dirty > behind > ahead > clean
 //
-// A repo is routinely both dirty and behind; the single state must pick deterministically, or two
+// CRITICAL: a repo is routinely both dirty and behind; this must pick deterministically or two
 // machines report the same repo differently.
 var statePriority = map[RepoState]int{
 	StateError:      100,
@@ -40,8 +37,8 @@ var statePriority = map[RepoState]int{
 	StateClean:      10,
 }
 
-// Priority reports the state's rank in the §6.5 ordering. Unknown states rank above everything so
-// a state added later can never be silently swallowed by an existing one.
+// Priority reports the state's rank in the §6.5 ordering. CRITICAL: unknown states rank above
+// everything so a state added later is never silently swallowed by an existing one.
 func (s RepoState) Priority() int {
 	if p, ok := statePriority[s]; ok {
 		return p
@@ -57,6 +54,6 @@ func (s RepoState) MoreUrgentThan(other RepoState) bool {
 // String satisfies fmt.Stringer.
 func (s RepoState) String() string { return string(s) }
 
-// IsAttention reports whether the state is something other than a fully clean, up-to-date repo.
-// It backs `--exit-code` (spec §6.10 code 3) and the highlighting in human output.
+// IsAttention reports whether the state is anything other than clean+up-to-date. Backs
+// --exit-code (spec §6.10 code 3) and human-output highlighting.
 func (s RepoState) IsAttention() bool { return s != StateClean }

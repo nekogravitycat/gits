@@ -6,10 +6,8 @@ import (
 	"github.com/nekogravitycat/gits/internal/domain"
 )
 
-// ListEntry is one row of `gits list`, with every inherited value already resolved.
-//
-// Resolution happens here rather than in the renderer so that a caller reading the JSON never has
-// to reimplement the defaults chain to find out which branch a repo actually tracks.
+// ListEntry is one row of `gits list`, with every inherited value already resolved here (not in
+// the renderer) so a JSON caller never reimplements the defaults chain.
 type ListEntry struct {
 	Name        string
 	Path        string
@@ -26,11 +24,8 @@ type ListResult struct {
 	Repos []ListEntry
 }
 
-// List reports what the manifest declares (spec §7.10).
-//
-// It reads the manifest and nothing else -- no directories, no git, no network -- which makes it
-// the cheapest way for an agent to answer "what is in this workspace, where, and what may I write
-// to". Cheaper than status, and far more reliable than having the agent parse the YAML itself.
+// List reports what the manifest declares (spec §7.10). Reads the manifest only -- no directories,
+// git, or network -- so it is the cheapest way for an agent to answer "what is in this workspace".
 func List(_ context.Context, env *Env, g Global) (*ListResult, error) {
 	m, err := env.LoadManifest()
 	if err != nil {

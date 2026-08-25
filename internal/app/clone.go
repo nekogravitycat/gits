@@ -22,14 +22,10 @@ type CloneResult struct {
 	DryRun  bool
 }
 
-// Clone fills in the repos the manifest lists but this machine does not have (spec §7.6).
+// Clone fills in the repos the manifest lists but this machine lacks (spec §7.6).
 //
-// This is the command that makes moving between machines work: the manifest travels in the root
-// repo, so whatever was added on the other machine shows up here as a missing directory and gets
-// created.
-//
-// no-write repos are included -- cloning a repo you will never write to is exactly why it is in
-// the manifest.
+// This is what makes moving between machines work: the manifest travels in the root repo, so a
+// repo added elsewhere shows up here as a missing directory. no-write repos are included.
 func Clone(ctx context.Context, env *Env, g Global, opts CloneOptions) (*CloneResult, error) {
 	m, err := env.LoadManifest()
 	if err != nil {
@@ -38,7 +34,7 @@ func Clone(ctx context.Context, env *Env, g Global, opts CloneOptions) (*CloneRe
 	return CloneOf(ctx, env, g, opts, m)
 }
 
-// CloneOf clones against an already-loaded manifest, so `up` can use the list it just refreshed.
+// CloneOf clones against an already-loaded manifest, so `up` can reuse the list it just refreshed.
 func CloneOf(ctx context.Context, env *Env, g Global, opts CloneOptions, m *domain.Manifest) (*CloneResult, error) {
 	selected, skipped, err := Select(m, g, domain.SelectOpts{})
 	if err != nil {
@@ -57,8 +53,8 @@ func CloneOf(ctx context.Context, env *Env, g Global, opts CloneOptions, m *doma
 		}
 		if !exists {
 			if r.URL == "" {
-				// `gits init` writes an entry with a blank url when a repo has no origin, marked
-				// as a to-do. Say so plainly instead of handing git an empty argument.
+				// `gits init` writes a blank url for a repo with no origin; report it plainly
+				// rather than hand git an empty argument.
 				res.Repos = append(res.Repos, skip(r, domain.ErrManifest,
 					"manifest entry has no url",
 					"gits add "+r.Name+" --url <url> --update"))
@@ -74,14 +70,14 @@ func CloneOf(ctx context.Context, env *Env, g Global, opts CloneOptions, m *doma
 			continue
 		}
 		if !isRepo {
-			// Something is already sitting at that path. Refusing is the only safe move: the
-			// alternative is destroying whatever is there (spec §7.6).
+			// CRITICAL: something else occupies that path; cloning would destroy it, so refuse
+			// (spec §7.6).
 			res.Repos = append(res.Repos, skip(r, domain.ErrNotARepo,
 				"directory exists but is not a git repository",
 				"move "+r.EffectivePath()+" aside, then: gits clone -r "+r.Name))
 			continue
 		}
-		// Already present: a no-op, which is what makes clone safe to re-run (spec §6.11).
+		// Already present: a no-op, which makes clone safe to re-run (spec §6.11).
 		out := base(r, ActionUpToDate)
 		out.Message = "already present"
 		res.Repos = append(res.Repos, out)
@@ -122,8 +118,8 @@ func cloneRepo(ctx context.Context, env *Env, g Global, opts CloneOptions, m *do
 	}
 
 	if err := env.Git.Clone(ctx, r.URL, env.Dir(r), out.Branch, !opts.NoSubmodules); err != nil {
-		// One repo failing must not stop the rest; the run ends with a list of what went wrong,
-		// each with a code saying whether a retry has any chance (spec §3 principle 2, §7.6).
+		// CRITICAL: one repo failing must not stop the rest; collect the error with its code
+		// (spec §3 principle 2, §7.6).
 		return fail(r, err)
 	}
 	out.Message = "cloned"
@@ -133,16 +129,7 @@ func cloneRepo(ctx context.Context, env *Env, g Global, opts CloneOptions, m *do
 // sortResultsByManifest restores manifest order after concurrent work, so two runs of the same
 // command produce byte-identical reports (spec §6.5 rule 2).
 func sortResultsByManifest(results []RepoResult, order []domain.Repo) {
-	rank := make(map[string]int, len(order))
-	for i, r := range order {
-		rank[r.Name] = i
-	}
-	// Insertion sort: the slice is small and this keeps equal ranks in their original order.
-	for i := 1; i < len(results); i++ {
-		for j := i; j > 0 && rank[results[j].Name] < rank[results[j-1].Name]; j-- {
-			results[j], results[j-1] = results[j-1], results[j]
-		}
-	}
+	sortByManifest(results, order, func(r RepoResult) string { return r.Name })
 }
 
 func cloneQuestion(repos []domain.Repo) string {

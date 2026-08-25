@@ -19,22 +19,17 @@ const (
 	// ExitUsage: the command could not be attempted -- bad arguments, missing or invalid
 	// manifest, or a confirmation required in a non-interactive environment.
 	ExitUsage ExitCode = 2
-	// ExitAttention: nothing failed, but something needs looking at. Only ever returned when the
-	// caller asked for it with --exit-code.
-	//
-	// Kept distinct from ExitFailure on purpose: "a push failed" and "everything worked, but you
-	// are two commits behind" call for completely different handling by the caller, and collapsing
-	// them (as `git diff --exit-code` does) would lose that (spec §6.10).
+	// ExitAttention: nothing failed, but something needs looking at. Only returned under
+	// --exit-code. Kept distinct from ExitFailure: a failed push and "you are two commits behind"
+	// need different caller handling (spec §6.10).
 	ExitAttention ExitCode = 3
 	// ExitInterrupted: the user interrupted the run.
 	ExitInterrupted ExitCode = 130
 )
 
-// Error is a failure that ends the command before any repo work, carrying the stable code and the
-// exit status the CLI should use.
-//
-// Per-repo failures are not represented this way: they are collected into the command's result so
-// that one bad repo never stops the rest (spec §3 principle 2).
+// Error is a failure that ends the command before any repo work, carrying the stable code and exit
+// status the CLI should use. Per-repo failures are collected into the result instead, so one bad
+// repo never stops the rest (spec §3 principle 2).
 type Error struct {
 	Code domain.ErrCode
 	Msg  string
@@ -54,10 +49,9 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // GitError is a failed git invocation, already classified into a stable code by the adapter.
 //
-// Classification belongs next to the raw stderr, which only the adapter sees; the use cases above
-// need the code, not the prose. Keeping E_AUTH and E_NETWORK apart is the whole point: one is
-// worth retrying, the other never is, and an agent that cannot tell them apart burns its budget
-// retrying a missing credential (spec §6.6).
+// CRITICAL: keeping E_AUTH and E_NETWORK apart is the point -- one is worth retrying, the other
+// never is, and an agent that cannot tell them apart burns its budget retrying a missing
+// credential (spec §6.6).
 type GitError struct {
 	Code   domain.ErrCode
 	Args   []string
@@ -90,10 +84,9 @@ func CodeOf(err error) domain.ErrCode {
 	return domain.ErrGit
 }
 
-// MessageOf extracts a one-line, human-readable reason from an error.
-//
-// git's own stderr is preferred over Go's wrapping: "Permission denied (publickey)" tells the user
-// what to do, while "exit status 128" does not.
+// MessageOf extracts a one-line, human-readable reason from an error. git's own stderr is
+// preferred over Go's wrapping: "Permission denied (publickey)" is actionable, "exit status 128"
+// is not.
 func MessageOf(err error) string {
 	if err == nil {
 		return ""
@@ -102,8 +95,8 @@ func MessageOf(err error) string {
 	if errorsAs(err, &ge) && ge.Stderr != "" {
 		return summaryLine(ge.Stderr)
 	}
-	// Msg, not Error(): an *Error that wraps the cause its own message was built from would
-	// otherwise render as "reason: reason".
+	// Msg, not Error(): an *Error wrapping the cause its message was built from would otherwise
+	// render as "reason: reason".
 	var ae *Error
 	if errorsAs(err, &ae) && ae.Msg != "" {
 		return firstLine(ae.Msg)
@@ -127,9 +120,8 @@ var progressPrefixes = []string{
 
 // summaryLine picks the one line of git stderr worth showing in a report.
 //
-// The first line is the wrong choice: a failed clone opens with "Cloning into 'x'..." and only
-// says what went wrong on the second line. Reporting the progress banner as the reason leaves the
-// reader with no idea what happened, so the "fatal:" line is preferred over position.
+// The first line is wrong: a failed clone opens with "Cloning into 'x'..." and reports the fault
+// on a later line, so "fatal:"/"error:" lines are preferred over position.
 func summaryLine(stderr string) string {
 	var candidates []string
 	for _, raw := range strings.Split(stderr, "\n") {
@@ -167,8 +159,8 @@ func Usagef(code domain.ErrCode, format string, args ...any) *Error {
 	return &Error{Code: code, Msg: fmt.Sprintf(format, args...), Exit: ExitUsage}
 }
 
-// WithHint attaches a next step the caller can run verbatim. Hints are cheap to produce and useful
-// to both audiences: a human pastes it, an agent executes it (spec §6.6).
+// WithHint attaches a next step the caller can run verbatim: a human pastes it, an agent executes
+// it (spec §6.6).
 func (e *Error) WithHint(format string, args ...any) *Error {
 	e.Hint = fmt.Sprintf(format, args...)
 	return e
@@ -176,9 +168,8 @@ func (e *Error) WithHint(format string, args ...any) *Error {
 
 // ErrNeedsYes is the canonical non-interactive refusal.
 //
-// Failing immediately is the entire point. Waiting for input that can never arrive leaves a silent
-// process that never exits, which a caller only discovers as a timeout with no diagnostics
-// (spec §6.7).
+// CRITICAL: fail immediately -- waiting for input that can never arrive leaves a silent process
+// that never exits, seen by the caller only as an unexplained timeout (spec §6.7).
 func ErrNeedsYes(command string) *Error {
 	return (&Error{
 		Code: domain.ErrNeedsYes,
@@ -189,8 +180,8 @@ func ErrNeedsYes(command string) *Error {
 
 // ErrMaxRepos reports that the planned scope exceeded the caller's --max-repos ceiling.
 //
-// The check guards against the failure mode that actually happens in automation: not one wrong
-// operation, but the right operation applied to far too many repos (spec §6.12).
+// Guards the automation failure mode: not one wrong operation, but the right operation applied to
+// far too many repos (spec §6.12).
 func ErrMaxRepos(planned, maxRepos int) *Error {
 	return &Error{
 		Code: domain.ErrMaxRepos,
@@ -204,7 +195,7 @@ func ErrMaxRepos(planned, maxRepos int) *Error {
 func errorsAs[T error](err error, target *T) bool { return errors.As(err, target) }
 
 // firstLine trims an error down to one line: multi-line git output belongs in -v, not in a
-// summary row that has to stay scannable.
+// scannable summary row.
 func firstLine(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexAny(s, "\r\n"); i >= 0 {

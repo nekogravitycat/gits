@@ -21,20 +21,17 @@ type Discovered struct {
 	IsRoot bool
 }
 
-// ScanWorkspace finds the git repos in a workspace: the root directory itself when it is a repo,
-// plus every immediate subdirectory that is one.
+// ScanWorkspace finds the git repos in a workspace: the root directory when it is a repo, plus
+// every immediate subdirectory that is one. init and adopt share this one implementation so they
+// can never disagree about what counts as a repo (spec §7.7).
 //
-// init and adopt share this one implementation rather than each carrying its own scan, so the two
-// commands can never disagree about what counts as a repo (spec §7.7).
-//
-// The scan is one level deep on purpose. Recursing would sweep up every submodule and vendored
-// checkout in the tree, and those are dependencies of repos rather than members of the workspace.
+// NOTE: the scan is one level deep on purpose -- recursing would sweep up submodules and vendored
+// checkouts, which are dependencies of repos, not members of the workspace.
 func ScanWorkspace(ctx context.Context, env *Env) ([]Discovered, error) {
 	var found []Discovered
 
-	// The workspace root is checked first and separately: it is not one of its own
-	// subdirectories, so scanning children alone would miss it and a second pass would double-count
-	// it (spec §5.4).
+	// The workspace root is checked first and separately: it is not one of its own subdirectories,
+	// so scanning children alone would miss it and a second pass would double-count it (spec §5.4).
 	if isRepo, err := env.Git.IsRepo(ctx, env.Workspace); err == nil && isRepo {
 		d := Discovered{Name: filepath.Base(env.Workspace), Path: domain.RootPath, IsRoot: true}
 		d.URL, d.Branch = describeRepo(ctx, env, env.Workspace)
@@ -59,10 +56,9 @@ func ScanWorkspace(ctx context.Context, env *Env) ([]Discovered, error) {
 	return found, nil
 }
 
-// describeRepo reads the origin URL and current branch, treating both as optional.
-//
-// A repo with no origin is still recorded, with the URL left blank for the user to fill in.
-// Dropping it would be worse: an unlisted repo is exactly the drift the manifest exists to stop.
+// describeRepo reads the origin URL and current branch, both optional. A repo with no origin is
+// still recorded with a blank URL: dropping it would leave exactly the drift the manifest exists
+// to stop.
 func describeRepo(ctx context.Context, env *Env, dir string) (url, branch string) {
 	if u, err := env.Git.RemoteURL(ctx, dir, domain.DefaultRemote); err == nil {
 		url = u

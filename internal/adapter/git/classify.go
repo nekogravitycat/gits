@@ -6,11 +6,10 @@ import (
 	"github.com/nekogravitycat/gits/internal/domain"
 )
 
-// authPatterns are the shapes git and its transports use to say "who are you".
+// authPatterns match git/transport auth failures.
 //
-// This list is matched before the network one on purpose: several of these arrive over a perfectly
-// healthy connection, and misreading one as a network blip is what sends a caller into a retry
-// loop that can never succeed.
+// CRITICAL: matched before networkPatterns; several arrive over a healthy connection, and
+// misclassifying auth as network sends the caller into a retry loop that can never succeed.
 var authPatterns = []string{
 	"authentication failed",
 	"could not read username",
@@ -62,17 +61,16 @@ var hookPatterns = []string{
 
 // classify turns git's stderr into a stable code (spec §6.6).
 //
-// The E_AUTH / E_NETWORK split is the reason this function exists at all. A network failure is
-// worth retrying; an auth failure never is, and a caller that cannot tell them apart retries a
-// missing credential until its budget is gone. Everything else is a bonus.
+// CRITICAL: the E_AUTH/E_NETWORK split drives retry policy -- network is retried, auth never is,
+// and a caller that cannot tell them apart retries a missing credential until its budget is gone.
 func classify(stderr string) domain.ErrCode {
 	s := strings.ToLower(stderr)
 
 	if containsAny(s, hookPatterns) {
 		return domain.ErrHookFailed
 	}
-	// Auth is checked before network: "unable to access ... 403" contains both a network-shaped
-	// phrase and the real reason, and the real reason must win.
+	// CRITICAL: auth before network -- "unable to access ... 403" matches both, and the real
+	// reason (auth) must win.
 	if containsAny(s, authPatterns) {
 		return domain.ErrAuth
 	}
@@ -96,8 +94,8 @@ func classify(stderr string) domain.ErrCode {
 		return domain.ErrNoUpstream
 	}
 
-	// git's own exit codes are not classifiable: 128 covers everything from a bad ref to a dead
-	// network, which is exactly why the text has to be read.
+	// git's exit codes are not classifiable: 128 covers everything from a bad ref to a dead
+	// network, so the text has to be read.
 	return domain.ErrGit
 }
 

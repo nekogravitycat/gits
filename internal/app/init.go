@@ -27,16 +27,15 @@ type InitResult struct {
 
 // Init creates a manifest for the current directory (spec §7.7).
 //
-// Groups and no-write are deliberately left blank on every entry. Ownership is not something a
-// scan can infer, and a wrong guess about "you may not write here" is worse than no guess: the
-// user would either trust it and be wrong, or learn to ignore the field entirely.
+// Groups and no-write are left blank on every entry: ownership cannot be inferred by a scan, and a
+// wrong "you may not write here" guess is worse than none.
 func Init(ctx context.Context, env *Env, g Global) (*InitResult, error) {
 	manifestPath := env.ManifestPath()
 	if exists, err := env.FS.FileExists(manifestPath); err != nil {
 		return nil, err
 	} else if exists {
-		// Never overwrite: the manifest is hand-annotated, and re-running init must not be a way
-		// to lose those annotations (spec §6.11).
+		// CRITICAL: never overwrite -- the manifest is hand-annotated, and re-running init must
+		// not destroy those annotations (spec §6.11).
 		return nil, Usagef(domain.ErrManifest, "%s already exists", ManifestName).
 			WithHint("gits adopt   # register repos that are not listed yet")
 	}
@@ -66,8 +65,8 @@ func Init(ctx context.Context, env *Env, g Global) (*InitResult, error) {
 		m.Repos = append(m.Repos, entry)
 	}
 
-	// domain.NameLess, so that two machines adding entries independently mostly touch different
-	// parts of the file and git can merge them without help (spec §5.2, §10.1).
+	// Name order, so two machines adding entries independently mostly touch different parts of the
+	// file and git merges them without help (spec §5.2, §10.1).
 	sort.Slice(m.Repos, func(i, j int) bool { return domain.NameLess(m.Repos[i].Name, m.Repos[j].Name) })
 
 	if g.DryRun {
@@ -81,20 +80,18 @@ func Init(ctx context.Context, env *Env, g Global) (*InitResult, error) {
 	res.Repos = entriesOf(m)
 
 	if err := ensureManifestTracked(ctx, env, res); err != nil {
-		// A .gitignore problem must not undo a manifest that was written successfully; warn and
-		// let the caller act on the flags in the result.
+		// A .gitignore problem must not undo a manifest already written; warn and let the caller
+		// act on the result flags.
 		env.Log.Warnf("could not check .gitignore: %v", err)
 	}
 	return res, nil
 }
 
-// ensureManifestTracked makes sure gits.yaml can actually be committed, and that the local
-// override file cannot be.
+// ensureManifestTracked makes sure gits.yaml can be committed and the local override cannot.
 //
-// This check earns its place. A workspace whose .gitignore is "ignore everything, then allow a
-// list" swallows gits.yaml silently: `git add` reports no error, the file never enters version
-// control, and the user only finds out on the second machine when nothing has synced across
-// (spec §7.7, §10.1 trap 1).
+// CRITICAL: an "ignore everything, then allowlist" .gitignore silently swallows gits.yaml -- `git
+// add` reports no error, the file never enters version control, and the user only finds out on the
+// second machine when nothing synced (spec §7.7, §10.1 trap 1).
 func ensureManifestTracked(ctx context.Context, env *Env, res *InitResult) error {
 	ignored, err := env.Git.IsIgnored(ctx, env.Workspace, ManifestName)
 	if err != nil {
@@ -109,7 +106,7 @@ func ensureManifestTracked(ctx context.Context, env *Env, res *InitResult) error
 	if ignored && !hasLine(existing, "!"+ManifestName) {
 		add = append(add, "!"+ManifestName)
 	}
-	// The local override file describes this machine only and must never be shared (spec §5.5).
+	// The local override describes this machine only and must never be shared (spec §5.5).
 	if !hasLine(existing, LocalManifestName) {
 		add = append(add, LocalManifestName)
 	}

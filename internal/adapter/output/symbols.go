@@ -7,19 +7,16 @@ import (
 	"github.com/nekogravitycat/gits/internal/domain"
 )
 
-// Style decides how much decoration the human renderer may use.
-//
-// The two degradations are separate because the reasons are separate: a pipe cannot render colour
-// but handles UTF-8 fine, while an old console renders colour and mangles glyphs.
+// Style decides how much decoration the human renderer may use. Color and Emoji degrade
+// independently: a pipe handles UTF-8 but not colour; an old console renders colour but mangles
+// glyphs.
 type Style struct {
 	Color bool
 	Emoji bool
 }
 
-// NewStyle resolves the output style for a stream.
-//
-// plain forces the lowest common denominator; otherwise colour is used only on a terminal, and
-// NO_COLOR is honoured because it is the convention users already expect (spec §6.4).
+// NewStyle resolves the output style for a stream. plain forces the lowest common denominator;
+// otherwise colour needs a terminal, and NO_COLOR is honoured per convention (spec §6.4).
 func NewStyle(isTTY, plain bool) Style {
 	if plain {
 		return Style{}
@@ -49,8 +46,7 @@ func (s Style) paint(code, text string) string {
 	return code + text + ansiReset
 }
 
-// Dim renders de-emphasised text: the clean repos, which should be visibly present but not compete
-// for attention with the ones that need it.
+// Dim renders de-emphasised text (e.g. clean repos: present but not competing for attention).
 func (s Style) Dim(text string) string { return s.paint(ansiDim, text) }
 
 // Bold renders a heading.
@@ -58,12 +54,10 @@ func (s Style) Bold(text string) string { return s.paint(ansiBold, text) }
 
 // Symbol returns the marker for a repo state.
 //
-// The ASCII fallbacks are not decoration: Windows consoles without a UTF-8 code page render the
-// glyphs as mojibake, and a status report nobody can read is worse than a plain one (spec §6.4).
-//
-// Every fallback is exactly one character wide, matching the glyphs. A two-character marker would
-// shift that row's columns out of line with every other row, and the report is meant to be
-// scannable at a glance.
+// CRITICAL: ASCII fallbacks are load-bearing -- Windows consoles without a UTF-8 code page render
+// the glyphs as mojibake, and an unreadable status report is worse than a plain one (spec §6.4).
+// Every fallback is exactly one char wide to match the glyphs; a wider marker would misalign the
+// row's columns and break at-a-glance scanning.
 func (s Style) Symbol(state domain.RepoState) string {
 	switch state {
 	case domain.StateClean:

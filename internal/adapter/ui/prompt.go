@@ -1,4 +1,11 @@
 // Package ui implements the interaction and logging ports: terminal prompts and stderr output.
+//
+// Architecture Note:
+//   - No TUI framework by design (spec §10): a plain read-a-line loop behaves identically across
+//     Windows Terminal, Git Bash, SSH and CI logs, with no added dependency.
+//   - NOTE: every prompt method must check IsInteractive first; a prompt on a non-terminal hangs
+//     forever with no output and no exit (spec §6.7).
+//   - Editor selection follows git's own precedence so gits never disagrees with `git commit`.
 package ui
 
 import (
@@ -14,9 +21,6 @@ import (
 )
 
 // Prompter implements app.Prompter over plain stdin and stderr.
-//
-// No TUI framework, by design (spec §10): a plain read-a-line loop behaves identically in Windows
-// Terminal, Git Bash, an SSH session and a CI log, and adds no dependency.
 type Prompter struct {
 	in          io.Reader
 	out         io.Writer
@@ -32,16 +36,12 @@ func NewPrompter(in io.Reader, out io.Writer, interactive bool) *Prompter {
 var _ app.Prompter = (*Prompter)(nil)
 
 // IsInteractive reports whether prompting is possible at all.
-//
-// Callers must check this before every prompt. Writing a question to a non-terminal produces a
-// process that emits nothing and never exits -- which a caller usually discovers only as a timeout
-// with no diagnostics at all (spec §6.7).
 func (p *Prompter) IsInteractive() bool { return p.interactive }
 
 // Confirm asks a yes/no question, defaulting to no.
 //
-// The default is deliberately the safe one: an empty line, a stray newline in a pipe, or a user
-// hitting enter to get past the prompt must never approve a push.
+// CRITICAL: default must stay "no" -- an empty line, stray pipe newline, or enter-to-dismiss must
+// never approve a push.
 func (p *Prompter) Confirm(question string) (bool, error) {
 	if !p.interactive {
 		return false, app.ErrNeedsYes("")
@@ -75,9 +75,6 @@ func (p *Prompter) Line(prompt string) (string, error) {
 }
 
 // Editor opens the user's configured editor for a multi-line commit message.
-//
-// The editor choice follows git's own precedence, so gits never disagrees with what `git commit`
-// would have opened.
 func (p *Prompter) Editor(initial string) (string, error) {
 	if !p.interactive {
 		return "", app.ErrNeedsYes("")
@@ -101,8 +98,8 @@ func (p *Prompter) Editor(initial string) (string, error) {
 	editor := resolveEditor()
 	args := append(splitEditorCommand(editor), name)
 
-	//nolint:noctx // The editor is a foreground program the user is actively typing in; a timeout
-	// here would kill their message mid-sentence. It is bounded by the user closing it.
+	//nolint:noctx // NOTE: no timeout -- the editor is a foreground program the user is typing in;
+	// a timeout would kill their message mid-sentence. Bounded by the user closing it.
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin = p.in
 	cmd.Stdout = p.out
@@ -118,8 +115,7 @@ func (p *Prompter) Editor(initial string) (string, error) {
 	return stripCommentLines(string(content)), nil
 }
 
-// resolveEditor follows git's precedence: GIT_EDITOR, then VISUAL, then EDITOR, then a platform
-// default.
+// resolveEditor follows git's precedence: GIT_EDITOR, VISUAL, EDITOR, then a platform default.
 func resolveEditor() string {
 	for _, key := range []string{"GIT_EDITOR", "VISUAL", "EDITOR"} {
 		if v := strings.TrimSpace(os.Getenv(key)); v != "" {

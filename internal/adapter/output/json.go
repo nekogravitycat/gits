@@ -1,9 +1,15 @@
 // Package output renders command results for the two audiences the spec treats as equals: a human
 // reading a terminal, and a program parsing stdout.
 //
-// Both renderers consume the same result values from internal/app, which is what makes the
-// equal-audiences rule enforceable rather than aspirational: there is no fact one can show that
-// the other cannot (spec §3.7).
+// Architecture Note:
+//   - Both renderers consume the same internal/app result values, so neither audience can be shown
+//     a fact the other cannot -- the equal-audiences rule is structural, not aspirational (spec §3.7).
+//   - CRITICAL: JSON output is exactly one object on stdout and nothing else; every progress line,
+//     warning and prompt goes to stderr, or piping into jq breaks on the first stray byte (spec §6.4).
+//   - CRITICAL: field/declaration order is emission order and part of the contract -- two runs are
+//     routinely diffed, so there is deliberately no timestamp or elapsed time anywhere (spec §6.5 rule 2).
+//   - Paths are normalised to forward slashes so the same workspace emits identical strings across
+//     OSes (see toSlash).
 package output
 
 import (
@@ -17,14 +23,11 @@ import (
 	"github.com/nekogravitycat/gits/internal/domain"
 )
 
-// SchemaVersion identifies the JSON contract. It increments on any incompatible change, so a
-// caller can refuse output it was not written against (spec §6.5 rule 4).
+// SchemaVersion identifies the JSON contract. It increments on any incompatible change so a caller
+// can refuse output it was not written against (spec §6.5 rule 4).
 const SchemaVersion = 1
 
-// JSON renders results as a single object on stdout.
-//
-// Exactly one object, and nothing else: every progress line, warning and prompt goes to stderr, or
-// piping into jq breaks on the first stray byte (spec §6.4).
+// JSON renders results as a single object on stdout (see package Architecture Note).
 type JSON struct {
 	out       io.Writer
 	workspace string
@@ -35,11 +38,7 @@ func NewJSON(out io.Writer, workspace string) *JSON {
 	return &JSON{out: out, workspace: workspace}
 }
 
-// header is the envelope every command shares. Declaration order is emission order, and the order
-// is part of the contract: two runs are routinely diffed against each other (spec §6.5 rule 2).
-//
-// There is deliberately no timestamp and no elapsed time anywhere in this file. Either would make
-// every diff of two runs show a spurious change.
+// header is the envelope every command shares.
 type header struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Command       string `json:"command"`
@@ -61,8 +60,8 @@ func (j *JSON) header(command string, dryRun bool) header {
 
 // repoDoc is one repo in a status payload.
 //
-// The pointer fields are the ones that only mean something for a repo that was actually inspected.
-// A missing directory has no ahead count, and emitting 0 would state a fact gits does not have.
+// Pointer fields mean something only for an inspected repo: a missing directory has no ahead count,
+// and emitting 0 would state a fact gits does not have.
 type repoDoc struct {
 	Name            string         `json:"name"`
 	Path            string         `json:"path"`
@@ -95,8 +94,8 @@ type summaryDoc struct {
 	Ahead   int `json:"ahead"`
 	Behind  int `json:"behind"`
 	Missing int `json:"missing"`
-	// Attention covers detached, no-upstream and diverged repos: not healthy, not a gits failure.
-	// Without it the buckets do not sum to total.
+	// Attention covers detached, no-upstream and diverged repos; without it the buckets do not
+	// sum to total.
 	Attention int `json:"attention"`
 	Failed    int `json:"failed"`
 	Skipped   int `json:"skipped"`
@@ -209,10 +208,8 @@ func resultDocs(results []app.RepoResult) []resultDoc {
 	return docs
 }
 
-// excludedDocs renders repos left out by a boundary rather than by the user's filter.
-//
-// They are reported rather than silently dropped: a caller has to be able to see that the scope
-// was narrowed and why (spec §6.6).
+// excludedDocs renders repos left out by a boundary rather than by the user's filter. Reported,
+// not silently dropped, so a caller can see the scope was narrowed and why (spec §6.6).
 func excludedDocs(excluded []domain.Excluded) []resultDoc {
 	docs := make([]resultDoc, 0, len(excluded))
 	for _, e := range excluded {
@@ -377,9 +374,8 @@ type pinDoc struct {
 type depGroupDoc struct {
 	Name string `json:"name"`
 	URL  string `json:"url,omitempty"`
-	// Canonical is null, not omitted, when the workspace has no checkout of this dependency.
-	// An explicit null is what tells a caller the determination is incomplete rather than clean
-	// (spec §7.11).
+	// CRITICAL: Canonical is null (not omitted) when the workspace has no checkout of this
+	// dependency -- explicit null tells a caller the determination is incomplete, not clean (spec §7.11).
 	Canonical    *string  `json:"canonical"`
 	Baseline     string   `json:"baseline,omitempty"`
 	BaselineSHA  string   `json:"baselineSha,omitempty"`
@@ -559,9 +555,8 @@ type formatDoc struct {
 
 // Format writes a fmt payload.
 //
-// The top-level changed is the field a hook branches on -- false means every file was already
-// canonical and nothing was written, true under dryRun means something would have been. The
-// per-file breakdown is there for a caller that cares which one it was.
+// Top-level changed is the field a hook branches on: false means nothing was written, true under
+// dryRun means something would have been. The per-file breakdown is for callers that care which.
 func (j *JSON) Format(res *app.FormatResult) error {
 	doc := formatDoc{
 		header:  j.header("fmt", res.DryRun),
@@ -592,8 +587,8 @@ type errorPayload struct {
 
 // Error writes a failure as JSON.
 //
-// A command that fails must still put a parseable object on stdout: a caller that gets prose on a
-// failure and JSON on success has to write two parsers, and will usually only write one.
+// CRITICAL: a failing command must still put a parseable object on stdout -- prose on failure and
+// JSON on success would force callers to write two parsers, and they will write only one.
 func (j *JSON) Error(command string, err error) error {
 	hint := ""
 	var ae *app.Error
@@ -618,13 +613,10 @@ func (j *JSON) write(doc any) error {
 	return enc.Encode(doc)
 }
 
-// toSlash normalises a path to forward slashes.
-//
-// Windows and Linux would otherwise emit different strings for the same workspace, so a caller
-// comparing output across machines would see a difference that is not one.
+// toSlash normalises a path to forward slashes (see package Architecture Note).
 func toSlash(p string) string {
 	return strings.TrimRight(filepath.ToSlash(p), "/")
 }
 
-// asAppError is a thin errors.As wrapper keeping the call site above readable.
+// asAppError is a thin errors.As wrapper keeping call sites readable.
 func asAppError(err error, target **app.Error) bool { return errors.As(err, target) }

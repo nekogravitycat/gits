@@ -38,10 +38,8 @@ type URLMismatch struct {
 	ActualURL   string
 }
 
-// Adopt registers repos that exist on disk but are absent from the manifest (spec §7.8).
-//
-// It is the mirror image of clone: clone materialises what the list knows about, adopt teaches the
-// list about what is already here. Together they close both directions of list drift.
+// Adopt registers repos that exist on disk but are absent from the manifest (spec §7.8). The
+// mirror of clone: clone materialises what the list knows, adopt teaches the list what is here.
 func Adopt(ctx context.Context, env *Env, g Global, opts AdoptOptions) (*AdoptResult, error) {
 	m, err := env.LoadManifest()
 	if err != nil {
@@ -62,7 +60,7 @@ func Adopt(ctx context.Context, env *Env, g Global, opts AdoptOptions) (*AdoptRe
 	var candidates []Discovered
 	for _, d := range found {
 		if known, listed := byPath[d.Path]; listed {
-			// Already registered: check it still points where the manifest says it does.
+			// Already registered: check it still points where the manifest says.
 			if d.URL != "" && known.URL != "" && !domain.SameRepoURL(d.URL, known.URL) {
 				res.URLMismatch = append(res.URLMismatch, URLMismatch{
 					Name: known.Name, ManifestURL: known.URL, ActualURL: d.URL,
@@ -73,9 +71,8 @@ func Adopt(ctx context.Context, env *Env, g Global, opts AdoptOptions) (*AdoptRe
 		candidates = append(candidates, d)
 	}
 
-	// The other direction of drift: listed, but not here. Reported and never acted on -- adopting
-	// is a manifest edit, and silently cloning would be a much larger action than the user asked
-	// for (spec §7.8).
+	// Other direction of drift: listed but not on disk. Reported, never acted on -- silently
+	// cloning would be a far larger action than the user asked for (spec §7.8).
 	for _, r := range m.Repos {
 		if r.Disabled {
 			continue
@@ -116,11 +113,9 @@ func Adopt(ctx context.Context, env *Env, g Global, opts AdoptOptions) (*AdoptRe
 	return res, nil
 }
 
-// adoptEntry builds the manifest entry for one discovered repo, asking the user about it when
-// there is a terminal to ask on.
-//
-// With -y (or no terminal) it takes everything and applies the flags, which is what makes adopt
-// usable unattended rather than only from a keyboard (spec §7.8).
+// adoptEntry builds the manifest entry for one discovered repo, prompting when a terminal exists.
+// With -y (or no terminal) it takes everything and applies the flags, so adopt works unattended
+// (spec §7.8).
 func adoptEntry(env *Env, g Global, m *domain.Manifest, d Discovered, opts AdoptOptions) (domain.Repo, bool, error) {
 	entry := domain.Repo{
 		Name:    d.Name,
@@ -131,8 +126,8 @@ func adoptEntry(env *Env, g Global, m *domain.Manifest, d Discovered, opts Adopt
 	if d.Path != d.Name {
 		entry.Path = d.Path
 	}
-	// A branch equal to the manifest default is left unwritten, so the entry says only what is
-	// actually specific to this repo (spec §7.8).
+	// A branch equal to the manifest default is left unwritten, so the entry states only what is
+	// specific to this repo (spec §7.8).
 	if d.Branch != "" && d.Branch != m.EffectiveBranch(entry) {
 		entry.Branch = d.Branch
 	}

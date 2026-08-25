@@ -8,19 +8,14 @@ import (
 	"github.com/nekogravitycat/gits/internal/domain"
 )
 
-// WorkspaceEnv is the environment variable that names a workspace (spec §6.1).
+// WorkspaceEnv names a workspace (spec §6.1).
 const WorkspaceEnv = "GITS_WORKSPACE"
 
-// YesEnv makes --yes the default for a whole environment, which is how CI and agent runners avoid
-// threading the flag through every call site (spec §6.7 rule 4).
+// YesEnv makes --yes the default for a whole environment (spec §6.7 rule 4).
 const YesEnv = "GITS_YES"
 
-// FindWorkspace resolves the workspace root, in the fixed precedence of spec §6.1:
-// the --workspace flag, then GITS_WORKSPACE, then the nearest gits.yaml at or above the working
-// directory.
-//
-// The upward search mirrors how git locates .git, so the tool works from anywhere inside a
-// workspace with nothing to configure.
+// FindWorkspace resolves the workspace root in fixed precedence (spec §6.1): --workspace flag,
+// GITS_WORKSPACE, then the nearest gits.yaml at or above the working directory.
 func FindWorkspace(flagValue string) (string, error) {
 	if flagValue != "" {
 		return validateWorkspace(flagValue, true)
@@ -49,7 +44,6 @@ func FindWorkspace(flagValue string) (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached the filesystem root without finding one.
 			break
 		}
 		dir = parent
@@ -64,9 +58,8 @@ func FindWorkspace(flagValue string) (string, error) {
 
 // validateWorkspace checks an explicitly named workspace.
 //
-// An explicit path that turns out to hold no manifest is reported rather than searched upward
-// from: the caller said where to look, and quietly looking somewhere else would act on a different
-// workspace than the one they named.
+// CRITICAL: an explicit path with no manifest is reported, never searched upward from -- doing so
+// would act on a different workspace than the caller named.
 func validateWorkspace(path string, mustHaveManifest bool) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -82,8 +75,8 @@ func validateWorkspace(path string, mustHaveManifest bool) (string, error) {
 	return abs, nil
 }
 
-// WorkspaceForInit resolves where a new manifest should be created. Unlike FindWorkspace it does
-// not require an existing manifest, since creating one is the point.
+// WorkspaceForInit resolves where a new manifest should be created; unlike FindWorkspace it does
+// not require an existing manifest.
 func WorkspaceForInit(flagValue string) (string, error) {
 	if flagValue != "" {
 		return validateWorkspace(flagValue, false)
@@ -110,10 +103,9 @@ func isWorkspace(dir string) bool {
 
 // IsTerminal reports whether f is an interactive terminal.
 //
-// Getting this right is what keeps gits from ever hanging: every prompt is gated on it, and a
-// wrong "yes" here turns a piped run into a process that waits forever for input that will never
-// arrive (spec §6.7). Checking the character-device bit needs no dependency and behaves the same
-// on Windows and Unix.
+// CRITICAL: every prompt is gated on this; a wrong "yes" turns a piped run into a process that
+// waits forever for input that never arrives (spec §6.7). The char-device bit needs no dependency
+// and behaves the same on Windows and Unix.
 func IsTerminal(f *os.File) bool {
 	if f == nil {
 		return false

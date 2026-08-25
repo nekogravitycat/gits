@@ -15,8 +15,8 @@ type CommitOptions struct {
 	// Empty means interactive review, which requires a TTY.
 	Message string
 
-	// All stages untracked files too. Off by default, so that local config and build output do
-	// not get swept into a commit nobody reviewed (spec §7.5).
+	// All stages untracked files too. Off by default so local config and build output are not
+	// swept into an unreviewed commit (spec §7.5).
 	All bool
 }
 
@@ -34,9 +34,8 @@ var errCommitAborted = errors.New("aborted by user")
 
 // Commit records pending work across the workspace (spec §7.5).
 //
-// no-write repos are excluded automatically, so the repos you never commit to are never even
-// offered. gits does not touch signing, hooks or the editor: those stay exactly as each repo
-// configures them, and commit never pushes.
+// no-write repos are excluded automatically. gits does not touch signing, hooks or the editor, and
+// commit never pushes.
 func Commit(ctx context.Context, env *Env, g Global, opts CommitOptions) (*CommitResult, error) {
 	m, err := env.LoadManifest()
 	if err != nil {
@@ -70,8 +69,8 @@ func Commit(ctx context.Context, env *Env, g Global, opts CommitOptions) (*Commi
 		return nil, err
 	}
 	if len(dirty) == 0 {
-		// No changes is a clean no-op, which is what makes commit safe to retry: it can never
-		// produce an empty commit (spec §6.11).
+		// No changes is a clean no-op, so commit is safe to retry and never produces an empty
+		// commit (spec §6.11).
 		res.Summary = SummarizeResults(res.Repos, len(skipped))
 		return res, nil
 	}
@@ -97,10 +96,8 @@ func Commit(ctx context.Context, env *Env, g Global, opts CommitOptions) (*Commi
 	return res, nil
 }
 
-// hasCommittableChanges reports whether a repo has anything this invocation would actually commit.
-//
-// Without -A, untracked files alone are not committable: offering such a repo would lead the user
-// through a review that ends in "nothing added to commit".
+// hasCommittableChanges reports whether a repo has anything this invocation would commit. Without
+// -A, untracked files alone are not committable.
 func hasCommittableChanges(st domain.RepoStatus, all bool) bool {
 	if st.Dirty.Tracked > 0 {
 		return true
@@ -123,8 +120,8 @@ func commitWithMessage(ctx context.Context, env *Env, g Global,
 
 // commitInteractive walks the dirty repos one at a time (spec §7.5, interactive mode).
 //
-// Sequential on purpose: the user is reading a diff and typing a message, so there is nothing to
-// parallelise, and interleaved output would make the review unreadable (spec §6.3).
+// NOTE: sequential on purpose -- the user reads a diff and types a message, and interleaved output
+// would make the review unreadable (spec §6.3).
 func commitInteractive(ctx context.Context, env *Env, g Global,
 	repos []domain.Repo, statuses []domain.RepoStatus, opts CommitOptions, res *CommitResult,
 ) error {
@@ -139,7 +136,7 @@ func commitInteractive(ctx context.Context, env *Env, g Global,
 		msg, err := promptForMessage(ctx, env, r)
 		switch {
 		case errors.Is(err, errCommitAborted):
-			// Everything already committed stays committed; the rest is simply not attempted.
+			// Everything already committed stays committed; the rest is not attempted.
 			return nil
 		case err != nil:
 			return err
@@ -199,7 +196,7 @@ func commitRepo(ctx context.Context, env *Env, g Global, r domain.Repo, st domai
 	if all {
 		out.Files += st.Dirty.Untracked
 	} else {
-		// Reported, not committed: the user finds out about them here rather than on the machine
+		// Reported, not committed: the user learns about them here rather than on the machine
 		// where they turn out to be missing (spec §7.5).
 		out.Untracked = st.Dirty.Untracked
 	}

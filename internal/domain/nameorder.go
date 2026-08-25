@@ -2,12 +2,11 @@ package domain
 
 import "unicode"
 
-// NameLess orders repo names the way a file browser lists files: case-insensitive, and runs of
-// digits compared as numbers rather than characters, so "repo2" sorts before "repo10" and
-// "amethyst-stack" sorts before "FantasyBaccaratSynthesizer".
+// NameLess orders repo names like a file browser: case-insensitive, digit runs compared numerically
+// so "repo2" sorts before "repo10".
 //
-// init, AddRepo and fmt all order the repos: sequence by name (spec §5.2); they must agree on
-// exactly this comparator or fmt would perpetually reorder what add just wrote.
+// CRITICAL: init, AddRepo and fmt all order by name (spec §5.2) and must share exactly this
+// comparator, or fmt would perpetually reorder what add just wrote.
 func NameLess(a, b string) bool {
 	return compareNames(a, b) < 0
 }
@@ -52,7 +51,7 @@ func compareNames(a, b string) int {
 func isDigit(r rune) bool { return r >= '0' && r <= '9' }
 
 // compareDigitRuns compares two runs of digits by numeric value, ignoring leading zeros, without
-// parsing them into a fixed-width integer -- a repo name is not obliged to keep its numbers small.
+// parsing into a fixed-width integer (a repo name's numbers need not be small).
 func compareDigitRuns(a, b []rune) int {
 	a = trimLeadingZeros(a)
 	b = trimLeadingZeros(b)

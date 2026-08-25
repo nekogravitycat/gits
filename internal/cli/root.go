@@ -1,8 +1,15 @@
 // Package cli wires the use cases to a cobra command tree and maps their results onto the spec's
 // exit codes.
 //
-// Nothing here decides what a command does; it parses flags, builds the adapters, calls one use
-// case and hands the result to a renderer.
+// Architecture Note:
+//   - This layer decides nothing a command does; it parses flags, builds adapters, calls one use
+//     case, and hands the result to a renderer.
+//   - Every path ends in one of the spec's exit codes with a stable error code (spec §6.10);
+//     errors never escape as a panic or bare message.
+//   - --json implies --plain, and a failure still renders JSON in --json mode, so callers write
+//     one parser, not two (spec §6.4).
+//   - Prompts and live progress require a real terminal; downstream gates on IsTerminal and fails
+//     with E_NEEDS_YES rather than blocking (spec §6.7).
 package cli
 
 import (
@@ -59,9 +66,6 @@ type globalFlags struct {
 var version = "dev"
 
 // Execute builds the command tree and runs it, returning the process exit code.
-//
-// Errors are never allowed to escape as a panic or a bare message: every path ends in one of the
-// spec's exit codes, with a stable error code attached (spec §6.10).
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var flags globalFlags
 
@@ -93,8 +97,8 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	pf.IntVarP(&flags.jobs, "jobs", "j", 0, "parallelism (default: min(8, CPUs))")
 
 	exit := app.ExitOK
-	// setExit keeps the highest-severity outcome: a later "nothing to report" must not overwrite
-	// an earlier failure.
+	// NOTE: keep the highest-severity outcome; a later "nothing to report" must not overwrite an
+	// earlier failure.
 	setExit := func(code app.ExitCode) {
 		if code > exit {
 			exit = code
@@ -126,7 +130,7 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	root.SetErr(stderr)
 
 	if err := root.Execute(); err != nil {
-		// A cobra-level failure is an argument problem, which is exit 2 by definition.
+		// CRITICAL: a cobra-level failure is an argument problem -- exit 2 by definition.
 		fmt.Fprintf(stderr, "gits: %v\n", err)
 		return int(app.ExitUsage)
 	}
@@ -146,7 +150,7 @@ func buildRuntime(flags *globalFlags, stdout, stderr io.Writer, needManifest boo
 		return nil, err
 	}
 
-	// --json implies --plain: decorative text in a machine payload is noise at best (spec §6.4).
+	// --json implies --plain (spec §6.4).
 	plain := flags.plain || flags.jsonOut
 
 	global := app.Global{
@@ -155,8 +159,7 @@ func buildRuntime(flags *globalFlags, stdout, stderr io.Writer, needManifest boo
 			Repos:    flags.repos,
 			Excludes: flags.excludes,
 		},
-		// GITS_YES lets a whole CI or agent environment opt in once rather than threading -y
-		// through every call (spec §6.7 rule 4).
+		// GITS_YES opts a whole CI/agent environment in once instead of threading -y (spec §6.7 rule 4).
 		Yes:      flags.yes || os.Getenv(YesEnv) == "1",
 		DryRun:   flags.dryRun,
 		JSON:     flags.jsonOut,
@@ -168,14 +171,13 @@ func buildRuntime(flags *globalFlags, stdout, stderr io.Writer, needManifest boo
 		Jobs:     flags.jobs,
 	}
 
-	// In-place progress redraw needs a real terminal on the receiving end -- piping stderr to a
-	// file or another process, or downgrading with --plain/--json, all fall back to one plain
-	// line per event (spec §6.4's ASCII/no-colour fallback, extended to progress).
+	// NOTE: live in-place redraw needs a real terminal on stderr; piping to a file/process or
+	// --plain/--json falls back to one plain line per event (spec §6.4).
 	live := IsTerminal(os.Stderr) && !plain
 	logger := ui.NewLogger(stderr, flags.verbose, live)
 
-	// Prompts are only ever possible on a terminal. Everything downstream checks IsInteractive
-	// before asking anything, and fails with E_NEEDS_YES instead of waiting (spec §6.7).
+	// Prompts require a terminal on both stdin and stderr; downstream fails with E_NEEDS_YES
+	// rather than blocking (spec §6.7).
 	interactive := IsTerminal(os.Stdin) && IsTerminal(os.Stderr)
 	prompter := ui.NewPrompter(os.Stdin, stderr, interactive)
 
@@ -205,11 +207,8 @@ type runtimeFactory func(needManifest bool) (*Runtime, error)
 // exitSetter records a command's outcome for the process exit code.
 type exitSetter func(app.ExitCode)
 
-// reportError renders a fatal error in whichever mode the caller asked for and returns its exit
-// code.
-//
-// A failure still produces JSON in --json mode. A caller that gets prose on failure and JSON on
-// success has to write two parsers, and in practice writes one (spec §6.4).
+// reportError renders a fatal error in the caller's mode and returns its exit code. Failures still
+// render JSON in --json mode (see Architecture Note).
 func reportError(rt *Runtime, command string, err error, jsonMode bool, stdout, stderr io.Writer) app.ExitCode {
 	code := app.ExitFailure
 	var ae *app.Error

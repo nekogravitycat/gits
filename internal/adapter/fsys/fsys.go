@@ -17,10 +17,8 @@ func New() *OS { return &OS{} }
 
 var _ app.FS = (*OS)(nil)
 
-// DirExists reports whether path is an existing directory.
-//
-// A path that exists but is a file counts as "not a directory" rather than an error: the caller's
-// next question is "can a repo live here", and a file in the way answers that just as clearly.
+// DirExists reports whether path is an existing directory. A file in the way returns false, not an
+// error.
 func (*OS) DirExists(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -46,9 +44,9 @@ func (*OS) FileExists(path string) (bool, error) {
 
 // ListDirs returns the immediate subdirectory names of path, sorted.
 //
-// Sorting is not cosmetic: directory order from the OS varies between filesystems and machines,
-// and an unsorted scan would make `gits init` write the same workspace differently on two
-// computers (spec §6.5 rule 2).
+// CRITICAL: sorting is required for determinism -- OS directory order varies by filesystem, and an
+// unsorted scan makes `gits init` write the same workspace differently on two machines (spec §6.5
+// rule 2).
 func (*OS) ListDirs(path string) ([]string, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -58,7 +56,7 @@ func (*OS) ListDirs(path string) ([]string, error) {
 	var dirs []string
 	for _, e := range entries {
 		name := e.Name()
-		// .git, .github, node_modules and friends are never managed repos, and descending into
+		// Skip dotdirs: .git/.github/node_modules are never managed repos, and descending into
 		// the workspace's own .git would be actively wrong.
 		if name != "" && name[0] == '.' {
 			continue
@@ -67,8 +65,8 @@ func (*OS) ListDirs(path string) ([]string, error) {
 			dirs = append(dirs, name)
 			continue
 		}
-		// A symlink to a directory is reported as a symlink by ReadDir, so it needs a second look
-		// -- some workspaces keep a repo elsewhere and link it in.
+		// A dir symlink is reported as a symlink by ReadDir, so resolve it -- some workspaces link
+		// in a repo kept elsewhere.
 		if e.Type()&os.ModeSymlink != 0 {
 			if info, serr := os.Stat(filepath.Join(path, name)); serr == nil && info.IsDir() {
 				dirs = append(dirs, name)

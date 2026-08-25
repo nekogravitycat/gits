@@ -17,9 +17,8 @@ type DepsOptions struct {
 
 // Deps reports cross-repo submodule dependencies (spec §7.11).
 //
-// Everything here is derived from git metadata that already exists: .gitmodules plus the gitlink
-// SHA in HEAD's tree. There is no new format to declare and nothing for a human to keep in sync --
-// the dependency table has been sitting in the filesystem all along, unread.
+// Everything is derived from existing git metadata (.gitmodules plus the gitlink SHA in HEAD's
+// tree): no new format to declare, nothing for a human to keep in sync.
 func Deps(ctx context.Context, env *Env, g Global, opts DepsOptions) ([]domain.DepGroup, error) {
 	m, err := env.LoadManifest()
 	if err != nil {
@@ -48,7 +47,7 @@ func DepsOf(ctx context.Context, env *Env, g Global, opts DepsOptions, m *domain
 		}
 		subs, serr := env.Git.ListSubmodules(ctx, dir)
 		if serr != nil {
-			// One unreadable repo must not sink the whole dependency report.
+			// CRITICAL: one unreadable repo must not sink the whole dependency report.
 			env.Log.Verbosef("deps: %s: %v", r.Name, serr)
 			return dependentSubmodules{repo: r}
 		}
@@ -83,15 +82,15 @@ type depGroup struct {
 	hasCanonical bool
 
 	// declaredBranch records the branch each dependent declared for the submodule, keyed by
-	// dependent name. It is consulted per pin, not per group, because dependents legitimately
-	// track different lines (spec §7.11).
+	// dependent name. Consulted per pin, not per group, since dependents legitimately track
+	// different lines (spec §7.11).
 	declaredBranch map[string]string
 }
 
 // groupByDependency buckets every submodule by the identity of the repo it points at.
 //
-// Grouping is by normalised URL and never by submodule path: across one real workspace, eight of
-// nine dependents call the same submodule "proto", so paths identify nothing (spec §7.11).
+// NOTE: grouping is by normalised URL, never by submodule path -- different dependents give the
+// same submodule different paths, so paths identify nothing (spec §7.11).
 func groupByDependency(found []dependentSubmodules) map[string]*depGroup {
 	groups := map[string]*depGroup{}
 	for _, f := range found {
@@ -146,7 +145,7 @@ func fetchCanonicals(ctx context.Context, env *Env, g Global, m *domain.Manifest
 			owners = append(owners, grp)
 		}
 	}
-	// Map order is random; sort so that -v output and any failure ordering stay deterministic.
+	// Map order is random; sort so -v output and failure ordering stay deterministic.
 	sort.Slice(owners, func(i, j int) bool { return owners[i].canonical.Name < owners[j].canonical.Name })
 	sort.Slice(repos, func(i, j int) bool { return repos[i].Name < repos[j].Name })
 
@@ -166,8 +165,8 @@ func compareGroup(ctx context.Context, env *Env, m *domain.Manifest, grp *depGro
 	dir := env.Dir(grp.canonical)
 	remote := m.EffectiveRemote(grp.canonical)
 
-	// The group-level baseline is what the canonical repo's own manifest entry declares; an
-	// individual pin may override it below.
+	// The group-level baseline is what the canonical repo's manifest entry declares; a pin may
+	// override it below.
 	grp.group.BaselineRef = remote + "/" + m.EffectiveBranch(grp.canonical)
 	if sha, ok, err := env.Git.ResolveRef(ctx, dir, grp.group.BaselineRef); err == nil && ok {
 		grp.group.BaselineSHA = sha
@@ -182,13 +181,11 @@ func compareGroup(ctx context.Context, env *Env, m *domain.Manifest, grp *depGro
 	}
 }
 
-// baselineFor picks the branch a pin is judged against, in the fixed §7.11 priority:
-// the dependent's own declared branch, then the canonical repo's manifest branch, then defaults.
+// baselineFor picks the branch a pin is judged against, in the fixed §7.11 priority: the
+// dependent's declared branch, then the canonical repo's manifest branch, then defaults.
 //
-// The first rule is what keeps the report worth reading. One real dependent declares
-// `branch = feature/arcade-proto`; judged against a workspace-wide "main" it would
-// carry a warning forever, despite being pinned exactly where it said it would be. A warning that
-// never goes away teaches the user to ignore every warning, and then the command is worthless.
+// The declared-branch rule keeps the report worth reading: a dependent on its own declared branch
+// must not carry a permanent warning, or users learn to ignore all warnings.
 func baselineFor(m *domain.Manifest, grp *depGroup, dependent string) (string, domain.BaselineSource) {
 	if b := grp.declaredBranch[dependent]; b != "" {
 		return b, domain.BaselineDeclared
@@ -202,8 +199,8 @@ func baselineFor(m *domain.Manifest, grp *depGroup, dependent string) (string, d
 	return domain.DefaultBranch, domain.BaselineDefaults
 }
 
-// shortSHA abbreviates a commit for display. Seven characters is git's own default and stays
-// unambiguous in any repo of ordinary size.
+// shortSHA abbreviates a commit for display; 7 chars is git's default and stays unambiguous in
+// repos of ordinary size.
 func shortSHA(sha string) string {
 	if len(sha) > 7 {
 		return sha[:7]
@@ -227,8 +224,7 @@ func comparePin(ctx context.Context, env *Env, dir string, pin *domain.Pin) {
 		return
 	}
 
-	// A pin whose commit is absent from the canonical object store is a different situation from
-	// one that has drifted: the answer is "fetch and ask again", not "you are behind".
+	// A pin absent from the canonical object store is "fetch and ask again", not "you are behind".
 	if exists, cerr := env.Git.CommitExists(ctx, dir, pin.SHA); cerr != nil || !exists {
 		pin.Verdict = domain.PinUnknown
 		pin.Message = "commit not found in canonical"
@@ -257,7 +253,7 @@ func comparePin(ctx context.Context, env *Env, dir string, pin *domain.Pin) {
 		if branches, berr := env.Git.BranchContains(ctx, dir, pin.SHA); berr == nil {
 			pin.ContainingBranches = branches
 		}
-		// The short SHA keeps the hint pasteable on one line; git resolves it just as well.
+		// Short SHA keeps the hint pasteable on one line; git resolves it just as well.
 		pin.Hint = "cd " + pin.SubmodulePath + " && git log --oneline " +
 			pin.BaselineRef + ".." + shortSHA(pin.SHA)
 	case domain.PinBehind:
@@ -278,16 +274,13 @@ func (grp *depGroup) finish() {
 		return
 	}
 
-	// Without the canonical checkout there is no authoritative timeline, so the only honest
-	// statement left is how much the dependents disagree with each other.
-	//
-	// Saying so explicitly matters more than looking complete: a caller acting on a partial
-	// verdict as though it were the whole answer is precisely what this code prevents (§7.11).
+	// Without a canonical checkout there is no authoritative timeline; the only honest statement is
+	// how much the dependents disagree. Saying so explicitly prevents a caller acting on a partial
+	// verdict as if whole (§7.11).
 	g := grp.group
 
-	// The group was keyed by normalised URL, which is the right identity but a poor label. With no
-	// manifest entry to supply a real name, the URL's last segment is what a person actually calls
-	// this repo; the full URL travels alongside so the label never has to be unique on its own.
+	// Keyed by normalised URL (right identity, poor label); with no manifest entry for a real name,
+	// use the URL's last segment and carry the full URL alongside for uniqueness.
 	g.Name = domain.DisplayName(g.URL)
 
 	g.Code = domain.ErrNoCanonical
@@ -306,8 +299,8 @@ func (grp *depGroup) finish() {
 	}
 }
 
-// countOf renders a count with the right noun form. "1 different commits" reads as a defect in the
-// tool rather than a fact about the workspace.
+// countOf renders a count with the right noun form ("1 commit" vs "N commits") so the message does
+// not read as a tool defect.
 func countOf(n int, one, many string) string {
 	if n == 1 {
 		return "1 " + one

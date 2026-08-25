@@ -26,11 +26,8 @@ func (h *Human) printf(format string, args ...any) {
 	fmt.Fprintf(h.out, format, args...)
 }
 
-// Status renders the workspace report (spec §7.2).
-//
-// Every repo is listed, healthy ones dimmed rather than hidden. Seeing all eighteen go by is what
-// tells the reader the scan really covered everything, instead of leaving them wondering whether
-// a repo was quietly skipped.
+// Status renders the workspace report (spec §7.2). Every repo is listed, healthy ones dimmed
+// rather than hidden, so the reader can see the scan covered everything.
 func (h *Human) Status(res *app.StatusResult) {
 	h.printf("workspace: %s  (%d repos)\n\n", h.workspace, res.Summary.Total)
 
@@ -53,8 +50,8 @@ func (h *Human) Status(res *app.StatusResult) {
 		h.printf("%s\n", h.depsLine(*res.Deps))
 	}
 	if res.Stale {
-		// Said plainly rather than guessed around. The offline numbers come from local refs and
-		// may lag; presenting them as live would be the one dishonesty the spec rules out (§6.9).
+		// CRITICAL: offline numbers come from local refs and may lag; presenting them as live is
+		// the one dishonesty the spec rules out (spec §6.9).
 		h.printf("%s\n", h.style.Dim("data may be stale (offline); add --fetch for live status"))
 	}
 }
@@ -67,8 +64,7 @@ func (h *Human) repoLine(s domain.RepoStatus, width int) {
 	body = strings.TrimRight(body, " ")
 
 	if s.State == domain.StateClean {
-		// Dimmed rather than omitted: present and accounted for, without competing for attention
-		// with the repos that actually need something.
+		// Dimmed rather than omitted: present but not competing with repos that need attention.
 		body = h.style.Dim(body)
 	}
 	if s.NoWrite {
@@ -104,8 +100,8 @@ func statusDetail(s domain.RepoStatus) string {
 	if s.Ahead > 0 {
 		parts = append(parts, fmt.Sprintf("ahead %d", s.Ahead))
 	}
-	// A feature branch is normal work, not a fault: it is flagged so the reader knows the
-	// comparison baseline differs, and deliberately not treated as an error (spec §7.2).
+	// A feature branch is normal work, not a fault: flagged so the reader knows the comparison
+	// baseline differs, deliberately not an error (spec §7.2).
 	if s.IsRepo && s.Branch != "" && !s.OnDefaultBranch && s.DefaultBranch != "" {
 		parts = append(parts, "(default is "+s.DefaultBranch+")")
 	}
@@ -127,8 +123,8 @@ func (h *Human) summary(s domain.Summary) {
 	add(s.Ahead, "ahead")
 	add(s.Behind, "behind")
 	add(s.Missing, "missing")
-	// Named explicitly rather than folded into another bucket: otherwise these repos disappear
-	// from the tally and the parts stop adding up to the total.
+	// Named explicitly, not folded into another bucket, or these repos vanish from the tally and
+	// the parts stop summing to the total.
 	add(s.Attention, "need attention")
 	add(s.Failed, "failed")
 	add(s.Skipped, "skipped")
@@ -154,9 +150,8 @@ func (h *Human) depsLine(d domain.DepSummary) string {
 
 // StatusByGroup renders the report grouped by group label (spec §7.2, --by-group).
 //
-// A repo in several groups is listed under each of them. Picking one group arbitrarily would be a
-// silent lie about the workspace, and deduplicating would hide the membership the reader asked to
-// see -- which is exactly why grouping is not the default.
+// A repo in several groups is listed under each: picking one arbitrarily would lie about the
+// workspace, and deduplicating would hide the membership -- which is why grouping is not the default.
 func (h *Human) StatusByGroup(res *app.StatusResult) {
 	h.printf("workspace: %s  (%d repos)\n", h.workspace, res.Summary.Total)
 
@@ -218,8 +213,7 @@ func (h *Human) Results(title string, results []app.RepoResult, skipped []domain
 		}
 		h.printf("%s\n", strings.TrimRight(line, " "))
 		if r.Hint != "" {
-			// Always a command that can be pasted and run, never "needs manual attention": the
-			// reader should not have to work out the rebase target themselves (spec §7.3).
+			// Always a runnable, pasteable command, never "needs manual attention" (spec §7.3).
 			h.printf("      %s %s\n", h.style.Dim("->"), r.Hint)
 		}
 	}
@@ -248,8 +242,8 @@ func (h *Human) rootStage(root *app.RepoResult, stale bool) {
 	}
 	h.printf("%s %s %s\n", h.style.Bold("workspace root:"), h.style.ActionSymbol(root.Action), root.Message)
 	if stale {
-		// Never continue quietly on an old list. A repo added on the other machine may simply be
-		// absent from this run, and the user has to know that before trusting the report (§7.1).
+		// CRITICAL: never continue quietly on an old list -- a repo added on another machine may
+		// be absent here, and the user must know before trusting the report (spec §7.1).
 		h.printf("  %s repo list may be stale: %s could not be updated\n",
 			h.style.Symbol(domain.StateDiverged), app.ManifestName)
 	}
@@ -279,8 +273,8 @@ func (h *Human) Up(res *app.UpResult, dryRun bool) {
 	}
 }
 
-// filterActed keeps the rows worth showing after a bulk stage: anything that moved, was skipped or
-// failed. Listing a dozen "already up to date" lines would bury the two that matter.
+// filterActed keeps only rows worth showing after a bulk stage (moved, skipped or failed); a dozen
+// "already up to date" lines would bury the two that matter.
 func filterActed(results []app.RepoResult) []app.RepoResult {
 	var out []app.RepoResult
 	for _, r := range results {
@@ -318,9 +312,8 @@ func (h *Human) Deps(groups []domain.DepGroup) {
 		}
 	}
 
-	// The report states facts -- behind, diverged, inconsistent -- and stops there. Whether being
-	// three commits behind actually breaks anything takes reading those three commits, and
-	// claiming otherwise would make the whole report untrustworthy (spec §7.11).
+	// The report states drift facts and stops; whether being N commits behind breaks anything
+	// needs reading those commits, and claiming otherwise would make it untrustworthy (spec §7.11).
 	h.printf("\n%s\n", h.style.Dim(
 		"deps reports drift, not breakage; check what the missing commits changed"))
 }
@@ -335,9 +328,8 @@ func (h *Human) depGroupHeader(g domain.DepGroup) {
 		h.printf(")\n\n")
 		return
 	}
-	// g.Message repeats the "no canonical checkout" clause for the benefit of JSON callers, who
-	// have no header line. Here the header already said it, and the closing tally gives the
-	// disagreement count, so printing it again would just be noise.
+	// g.Message repeats "no canonical checkout" for JSON callers, who have no header line; here the
+	// header and closing tally already convey it, so repeating it would be noise.
 	h.printf("%s  %s\n", h.style.Bold(g.Name), h.style.Dim("(no canonical checkout in this workspace)"))
 	h.printf("  %s\n\n", h.style.Dim(g.URL))
 }
@@ -350,8 +342,8 @@ func (h *Human) pinLine(p domain.Pin, g domain.DepGroup, width int) {
 	h.printf("  %s %s  %s  %s\n",
 		h.style.VerdictSymbol(p.Verdict), pad(p.Dependent, width), shortSHA(p.SHA), detail)
 
-	// When a dependent tracks a branch of its own, say so on the line. Otherwise its permanent
-	// "behind" reads as a fault rather than as the deliberate choice it is (spec §7.11).
+	// When a dependent tracks its own branch, say so, or its permanent "behind" reads as a fault
+	// rather than the deliberate choice it is (spec §7.11).
 	if p.BaselineSource == domain.BaselineDeclared && p.BaselineRef != g.BaselineRef {
 		h.printf("      %s\n", h.style.Dim("baseline is its declared "+p.BaselineRef))
 	}
@@ -388,10 +380,8 @@ func (h *Human) ListNames(res *app.ListResult) {
 	}
 }
 
-// ListMarkdown writes a Markdown table (spec §7.10).
-//
-// This is the direct answer to agents reading a hand-maintained repo table in CLAUDE.md and
-// walking into repos that no longer exist. A generated table cannot drift from the manifest.
+// ListMarkdown writes a Markdown table (spec §7.10). A generated table cannot drift from the
+// manifest, unlike a hand-maintained repo table agents read and then walk into dead repos.
 func (h *Human) ListMarkdown(res *app.ListResult) {
 	h.printf("| Repo | Path | Branch | Groups | Write | Description |\n")
 	h.printf("| --- | --- | --- | --- | --- | --- |\n")
@@ -430,9 +420,9 @@ func (h *Human) Foreach(res *app.ForeachResult) {
 		}
 	}
 
-	// Named rather than silently dropped. foreach cannot tell a read from a write -- the command
-	// is opaque to it -- so it treats every run as a write and leaves no-write repos out. The
-	// reader has to be able to see that the scope was narrower than their filter implied (§7.12).
+	// Named rather than silently dropped: foreach cannot tell a read from a write (the command is
+	// opaque), so it treats every run as a write and omits no-write repos; the reader must see the
+	// scope was narrower than their filter implied (spec §7.12).
 	if len(res.Skipped) > 0 {
 		h.printf("\n%s\n", h.style.Bold("Skipped:"))
 		for _, e := range res.Skipped {
@@ -482,8 +472,8 @@ func (h *Human) Adopt(res *app.AdoptResult) {
 		h.printf("\nskipped: %s\n", strings.Join(res.Skipped, ", "))
 	}
 
-	// Both directions of drift are reported and neither is acted on. Cloning or rewriting a URL
-	// would be a far larger action than the user asked for (spec §7.8).
+	// Both directions of drift are reported, neither acted on: cloning or rewriting a URL is a far
+	// larger action than the user asked for (spec §7.8).
 	if len(res.Missing) > 0 {
 		h.printf("\n%s in the manifest but not on disk: %s\n",
 			h.style.Symbol(domain.StateMissing), strings.Join(res.Missing, ", "))
@@ -513,10 +503,8 @@ func (h *Human) Add(res *app.AddResult) {
 	}
 }
 
-// Format renders the outcome of canonicalising the manifest files.
-//
-// Every file that was looked at gets a line, the untouched ones dimmed. Listing them is how the
-// reader learns gits.local.yaml was considered at all -- silence would read as "it was skipped".
+// Format renders the outcome of canonicalising the manifest files. Every file looked at gets a
+// line, untouched ones dimmed, so the reader sees gits.local.yaml was considered rather than skipped.
 func (h *Human) Format(res *app.FormatResult) {
 	for _, f := range res.Files {
 		if !f.Changed {
@@ -531,8 +519,8 @@ func (h *Human) Format(res *app.FormatResult) {
 		h.printf("%s %s (%d entries)\n", verb, f.File, f.Entries)
 
 		if len(f.Reordered) > 0 {
-			// Naming them matters: a reordered entry is the one change fmt makes that a reviewer
-			// cannot spot from the diff's shape alone.
+			// Name them: a reordered entry is the one fmt change a reviewer cannot spot from the
+			// diff's shape alone.
 			h.printf("  moved into name order: %s\n", strings.Join(f.Reordered, ", "))
 		}
 	}
@@ -601,10 +589,8 @@ func indent(s, prefix string) string {
 	return strings.Join(lines, "\n")
 }
 
-// dependencyTally is the closing line of a dependency group.
-//
-// "1 different commits" reads as a bug in the tool rather than a fact about the workspace, and the
-// single-commit case deserves the clearer phrasing anyway: agreement is the good outcome.
+// dependencyTally is the closing line of a dependency group. Phrasing avoids "1 different commits"
+// (reads as a tool bug) and states agreement as the good outcome.
 func dependencyTally(g domain.DepGroup) string {
 	verb := "depend on"
 	if len(g.Pins) == 1 {

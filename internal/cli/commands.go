@@ -15,9 +15,8 @@ func errorsAs[T error](err error, target *T) bool { return errors.As(err, target
 
 // finish maps a command's outcome onto the spec's exit codes (spec §6.10).
 //
-// The distinction that matters: exit 1 means a repo operation failed, exit 3 means nothing failed
-// but something wants attention. They are kept apart because a caller responds to them completely
-// differently, and 3 is only ever returned when the caller asked for it with --exit-code.
+// CRITICAL: exit 1 (a repo operation failed) and exit 3 (nothing failed, something wants
+// attention) are distinct because callers respond differently; 3 is only returned under --exit-code.
 func finish(rt *Runtime, setExit exitSetter, failed, attention bool) {
 	switch {
 	case failed:
@@ -122,8 +121,8 @@ func newStatusCommand(ctx context.Context, newRuntime runtimeFactory, setExit ex
 
 	cmd.Flags().BoolVar(&opts.Fetch, "fetch", false, "fetch first, for live ahead/behind numbers")
 	cmd.Flags().BoolVar(&opts.NoDeps, "no-deps", false, "skip the dependency summary")
-	// Not the default: a repo may belong to several groups, so grouping either duplicates rows or
-	// picks one arbitrarily. Manifest order avoids both (spec §7.2).
+	// NOTE: not the default -- a repo may belong to several groups, so grouping duplicates rows or
+	// picks one arbitrarily; manifest order avoids both (spec §7.2).
 	cmd.Flags().BoolVar(&byGroup, "by-group", false, "group the report by group (repos may repeat)")
 	return cmd
 }
@@ -404,8 +403,7 @@ func newFmtCommand(ctx context.Context, newRuntime runtimeFactory, setExit exitS
 				} else {
 					rt.Human.Format(res)
 				}
-				// Nothing here can fail a repo operation. A file that still needs formatting is
-				// exactly what exit 3 is for: nothing broke, something wants attention (spec §6.10).
+				// A manifest still needing formatting is exit 3, not a failure (spec §6.10).
 				finish(rt, setExit, false, res.Changed() && res.DryRun)
 				return nil
 			})

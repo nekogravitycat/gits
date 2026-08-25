@@ -30,8 +30,8 @@ type SyncResult struct {
 
 // Failed reports whether any repo operation failed, including the root repo's own sync.
 //
-// The root is checked explicitly because it is not part of Repos: leaving it out would let the
-// one repo whose failure invalidates the whole run exit 0.
+// CRITICAL: the root is checked explicitly because it is not part of Repos; leaving it out would
+// let the one repo whose failure invalidates the whole run exit 0.
 func (r *SyncResult) Failed() bool {
 	if r.Root != nil && r.Root.Failed() {
 		return true
@@ -41,13 +41,9 @@ func (r *SyncResult) Failed() bool {
 
 // Sync brings every selected repo up to date (spec §7.3).
 //
-// The strategy is deliberately timid: never touch uncommitted work, never create a conflict.
-// Anything gits cannot advance with a clean fast-forward is skipped and reported with the command
-// that would resolve it, because a tool that half-merges across eighteen repos is far worse than
-// one that hands the problem back clearly.
-//
-// no-write repos are included. Pulling is read-only as far as the remote is concerned, and leaving
-// them stale would defeat the reason they are in the workspace at all.
+// Timid by design: never touches uncommitted work, never creates a conflict. Anything not
+// advanceable by a clean fast-forward is skipped and reported with its resolving command. no-write
+// repos are included, since pulling is read-only to the remote.
 func Sync(ctx context.Context, env *Env, g Global, opts SyncOptions) (*SyncResult, error) {
 	m, err := env.LoadManifest()
 	if err != nil {
@@ -60,19 +56,15 @@ func Sync(ctx context.Context, env *Env, g Global, opts SyncOptions) (*SyncResul
 
 // syncRootFirst syncs the workspace root repo and reloads the manifest from it.
 //
-// This ordering is the whole reason the repo list can survive moving between machines. The
-// manifest lives inside the root repo, so a repo added on another machine last night is only
-// visible after that repo has been pulled -- sync the others first and the list you used was the
-// old one (spec §7.1 step 1-2, §10.1 trap 2).
-//
-// It returns the manifest to continue with: the reloaded one when the root advanced, the original
-// otherwise.
+// CRITICAL: the manifest lives inside the root repo, so a repo added elsewhere is only visible
+// after the root is pulled -- sync the others first and the list used was the old one (§7.1, §10.1).
+// Returns the reloaded manifest when the root advanced, the original otherwise.
 func syncRootFirst(ctx context.Context, env *Env, g Global, opts SyncOptions, m *domain.Manifest, res *SyncResult) *domain.Manifest {
 	root, ok := m.Root()
 	if !ok || root.Disabled {
 		return m
 	}
-	// An explicit filter that excludes the root repo is the user narrowing the scope on purpose.
+	// An explicit filter excluding the root repo is the user narrowing scope on purpose.
 	if selected, _, err := Select(m, g, domain.SelectOpts{}); err == nil && !containsRepo(selected, root.Name) {
 		return m
 	}
@@ -82,11 +74,9 @@ func syncRootFirst(ctx context.Context, env *Env, g Global, opts SyncOptions, m 
 
 	if out.Action != ActionUpdated {
 		if out.Action == ActionSkipped || out.Action == ActionFailed {
-			// Never carry on silently with a list that may be stale: a repo added on the other
-			// machine may simply be absent from this run (spec §7.1 step 2).
-			//
-			// Recorded as a flag rather than logged here, so that each renderer surfaces it once
-			// -- the human report as a warning line, the JSON payload as manifestStale.
+			// CRITICAL: never carry on silently with a possibly-stale list -- a repo added on the
+			// other machine may be absent from this run (spec §7.1 step 2). Flagged so each renderer
+			// surfaces it once.
 			res.ManifestStale = true
 		}
 		return m
@@ -138,8 +128,8 @@ func syncRepo(ctx context.Context, env *Env, g Global, opts SyncOptions, m *doma
 		return fail(r, err)
 	}
 	if !exists {
-		// sync deliberately does not clone. Keeping the two separate is what lets `sync` be the
-		// precise tool; `up` is the one that does both (spec §7.3).
+		// sync deliberately does not clone; keeping the two separate lets `sync` be precise and
+		// `up` do both (spec §7.3).
 		return skip(r, domain.ErrMissingDir, "directory does not exist", "gits clone -r "+r.Name)
 	}
 	if isRepo, rerr := env.Git.IsRepo(ctx, dir); rerr != nil {
@@ -164,8 +154,7 @@ func syncRepo(ctx context.Context, env *Env, g Global, opts SyncOptions, m *doma
 
 	switch {
 	case obs.Dirty.Tracked > 0:
-		// Untracked files are not a reason to skip: a fast-forward does not touch them, and
-		// refusing over a stray notes.txt would make sync useless in everyday work.
+		// Untracked files are not a reason to skip: a fast-forward does not touch them.
 		out.Action, out.Code = ActionSkipped, domain.ErrDirty
 		out.Message = fmt.Sprintf("uncommitted changes in %d tracked file(s)", obs.Dirty.Tracked)
 		out.Hint = "gits commit -r " + r.Name
@@ -186,8 +175,7 @@ func syncRepo(ctx context.Context, env *Env, g Global, opts SyncOptions, m *doma
 	case obs.Ahead > 0 && obs.Behind > 0:
 		out.Action, out.Code = ActionSkipped, domain.ErrDiverged
 		out.Message = fmt.Sprintf("diverged: ahead %d, behind %d", obs.Ahead, obs.Behind)
-		// A concrete command, not "needs manual attention": the user should not have to work out
-		// the rebase target themselves (spec §7.3 step 4).
+		// A concrete rebase command, not "needs manual attention" (spec §7.3 step 4).
 		out.Hint = inRepo(out.Path, "git rebase "+obs.Upstream)
 		return out
 
@@ -215,8 +203,8 @@ func syncRepo(ctx context.Context, env *Env, g Global, opts SyncOptions, m *doma
 	out.Message = fmt.Sprintf("fast-forwarded %d commit(s)", obs.Behind)
 
 	if !opts.NoSubmodules && obs.HasSubmodules {
-		// Not optional by default: skipping it leaves submodule worktrees on the old SHA, so the
-		// build no longer matches the gitlinks that were just updated (spec §7.3 step 3).
+		// CRITICAL: not optional by default -- skipping leaves submodule worktrees on the old SHA,
+		// so the build no longer matches the gitlinks just updated (spec §7.3 step 3).
 		if err := env.Git.SubmoduleUpdate(ctx, dir); err != nil {
 			out.Action = ActionFailed
 			out.Code = CodeOf(err)

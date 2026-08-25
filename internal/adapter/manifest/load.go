@@ -1,9 +1,12 @@
 // Package manifest reads and writes the workspace manifest.
 //
-// Everything here goes through yaml.v3's Node API rather than struct marshalling. That is a
-// requirement, not a preference: an ordinary marshal round trip erases comments, and the comments
-// are where "why is this repo no-write" is recorded (spec §5.1). gits is the only writer of
-// gits.yaml precisely so that this guarantee holds.
+// Architecture Note:
+//   - CRITICAL: all reads/writes go through yaml.v3's Node API, never struct marshalling; a
+//     marshal round trip erases comments, which carry design intent like "why no-write" (spec §5.1).
+//   - gits is the sole writer of gits.yaml so that guarantee holds.
+//   - Unknown keys are preserved on round-trip, never dropped (see reorderMapping in format.go).
+//   - Entries stay sorted by domain.NameLess and are inserted in order, never appended, so
+//     independent machines touch different parts of the file and git auto-merges (spec §5.2, §10.1).
 package manifest
 
 import (
@@ -62,8 +65,8 @@ func (s *Store) Load(workspace string) (*domain.Manifest, error) {
 	return m, nil
 }
 
-// parseManifest decodes the document, keeping each entry's line number so that a validation
-// failure can point at the offending entry rather than just naming the file (spec §5.6).
+// parseManifest decodes the document, keeping each entry's line number so validation can point at
+// the offending entry (spec §5.6).
 func parseManifest(content []byte, path string) (*domain.Manifest, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(content, &doc); err != nil {
@@ -205,7 +208,7 @@ func documentRoot(doc *yaml.Node) *yaml.Node {
 	return doc
 }
 
-// field looks up a key in a mapping node. Mapping content alternates key, value, key, value.
+// field looks up a key in a mapping node (content alternates key, value).
 func field(mapping *yaml.Node, key string) *yaml.Node {
 	if mapping == nil || mapping.Kind != yaml.MappingNode {
 		return nil
@@ -237,8 +240,8 @@ func fieldError(path string, n *yaml.Node, msg string) error {
 	}
 }
 
-// asAppError wraps a domain validation failure with the exit status the CLI needs, keeping the
-// original error reachable through errors.As.
+// asAppError wraps a domain validation failure with the CLI exit status, keeping the original
+// reachable via errors.As.
 func asAppError(err error) error {
 	var me *domain.ManifestError
 	if errors.As(err, &me) {

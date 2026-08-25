@@ -1,5 +1,11 @@
 package app
 
+// Architecture Note:
+// - Env is built once in main() and passed down; use cases never construct their own adapters.
+// - mapRepos runs work concurrently but returns results in manifest order, so two runs of the same
+//   command produce byte-identical reports (spec §6.3, §6.5).
+// - Ports (see ports.go) are declared by the use cases, keeping dependency arrows pointing inward.
+
 import (
 	"context"
 	"path/filepath"
@@ -18,8 +24,8 @@ const (
 	LocalManifestName = "gits.local.yaml"
 )
 
-// DefaultTimeout bounds every git subprocess (spec §6.8). A stuck pre-commit hook is routine, and
-// without a ceiling there is no ceiling at all.
+// DefaultTimeout bounds every git subprocess (spec §6.8).
+// CRITICAL: without a ceiling a stuck pre-commit hook hangs the whole run indefinitely.
 const DefaultTimeout = 120 * time.Second
 
 // Global holds the flags every command accepts (spec §6.12).
@@ -33,7 +39,7 @@ type Global struct {
 	Plain    bool
 	ExitCode bool
 
-	// MaxRepos refuses a plan that would touch more than this many repos. Zero means no ceiling.
+	// MaxRepos refuses a plan touching more than this many repos. Zero means no ceiling.
 	MaxRepos int
 
 	Timeout time.Duration
@@ -51,8 +57,7 @@ func (g Global) Concurrency() int {
 	return 8
 }
 
-// Env bundles the workspace location and the ports a use case needs. It is built once in main()
-// and passed down; nothing below constructs an adapter for itself.
+// Env bundles the workspace location and the ports a use case needs.
 type Env struct {
 	// Workspace is the absolute path to the workspace root.
 	Workspace string
@@ -67,10 +72,8 @@ type Env struct {
 // ManifestPath returns the absolute path to gits.yaml.
 func (e *Env) ManifestPath() string { return filepath.Join(e.Workspace, ManifestName) }
 
-// Dir resolves a manifest entry to an absolute directory.
-//
-// The root repo (path ".") resolves to the workspace directory itself, which is why this is not
-// just a join (spec §5.4).
+// Dir resolves a manifest entry to an absolute directory. The root repo (path ".") resolves to the
+// workspace directory itself, not a join (spec §5.4).
 func (e *Env) Dir(r domain.Repo) string {
 	p := r.EffectivePath()
 	if p == domain.RootPath {
@@ -84,10 +87,10 @@ func (e *Env) LoadManifest() (*domain.Manifest, error) {
 	return e.Store.Load(e.Workspace)
 }
 
-// Select resolves the caller's filter against the manifest, rejecting selectors that match nothing.
+// Select resolves the caller's filter against the manifest.
 //
-// An unknown name is a usage error rather than an empty selection: `gits push -r roulete-drawer`
-// must not report "nothing to push, all good" when the user simply mistyped a repo name.
+// An unknown name/group is a usage error, not an empty selection: a mistyped `-r` must not report
+// "nothing to do, all good".
 func Select(m *domain.Manifest, g Global, opts domain.SelectOpts) ([]domain.Repo, []domain.Excluded, error) {
 	if unknown := m.UnknownSelectors(g.Filter); len(unknown) > 0 {
 		return nil, nil, Usagef(domain.ErrManifest, "no repo named %q in the manifest", unknown[0]).
@@ -109,10 +112,9 @@ func CheckMaxRepos(g Global, planned int) error {
 	return nil
 }
 
-// Confirm gates a write behind the user's approval.
-//
-// --dry-run never needs approval: it changes nothing, so requiring --yes for it would only push
-// callers toward passing --yes habitually (spec §6.7 rule 3).
+// Confirm gates a write behind the user's approval. --dry-run never needs approval since it
+// changes nothing; requiring --yes for it would only train callers to pass --yes habitually
+// (spec §6.7 rule 3).
 func (e *Env) Confirm(g Global, command, question string) error {
 	if g.Yes || g.DryRun {
 		return nil
@@ -130,11 +132,10 @@ func (e *Env) Confirm(g Global, command, question string) error {
 	return nil
 }
 
-// mapRepos runs fn over repos concurrently and returns the results in manifest order.
+// mapRepos runs fn over repos concurrently and returns results in manifest order.
 //
-// The reordering is the point. Results are written into a pre-sized slice by index and only read
-// after every worker finishes, so output never depends on which repo happened to finish first --
-// which is what makes diffing two runs of the same command meaningful (spec §6.3, §6.5).
+// NOTE: results are written by index into a pre-sized slice and read only after all workers finish,
+// so output never depends on completion order (spec §6.3, §6.5).
 func mapRepos[T any](ctx context.Context, jobs int, repos []domain.Repo, fn func(context.Context, domain.Repo) T) []T {
 	results := make([]T, len(repos))
 	if len(repos) == 0 {
@@ -163,12 +164,10 @@ func mapRepos[T any](ctx context.Context, jobs int, repos []domain.Repo, fn func
 	return results
 }
 
-// withProgress wraps fn so that each of a mapRepos batch reports as it finishes, via
-// log.Progress(stage, ...). Call log.Progress(stage, 0, total, "") before starting the batch and
-// log.ProgressDone() after, so the stage announces itself even before the first repo lands.
+// withProgress wraps fn so each repo in a mapRepos batch reports as it finishes. Call
+// log.Progress(stage, 0, total, "") before the batch and log.ProgressDone() after.
 //
-// The counter is atomic because completions arrive from mapRepos's worker goroutines in whatever
-// order the network gives them, not manifest order.
+// NOTE: the counter is atomic because completions arrive from worker goroutines out of order.
 func withProgress[T any](log Logger, stage string, total int, fn func(context.Context, domain.Repo) T) func(context.Context, domain.Repo) T {
 	var done int32
 	return func(ctx context.Context, r domain.Repo) T {

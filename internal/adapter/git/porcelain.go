@@ -10,11 +10,8 @@ import (
 
 // parseStatus reads `git status --porcelain=v2 --branch` output.
 //
-// porcelain=v2 is git's documented, stable machine interface, and one call yields the branch, the
-// upstream, the ahead/behind pair and every changed file at once (spec §10). Parsing the
-// human-facing output instead would be both slower and fragile.
-//
-// The format, one record per line:
+// porcelain=v2 is git's documented stable machine interface, yielding branch, upstream,
+// ahead/behind and every changed file in one call (spec §10). Record format, one per line:
 //
 //	# branch.oid <sha> | (initial)
 //	# branch.head <branch> | (detached)
@@ -25,8 +22,7 @@ import (
 //	u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>             unmerged
 //	? <path>                                                            untracked
 func parseStatus(out string) app.RepoObservation {
-	// Clean until a record proves otherwise. A submodule that matches its gitlink produces no
-	// status record at all, so the absence of evidence really is evidence of cleanliness here.
+	// Clean until a record proves otherwise: a submodule matching its gitlink emits no record.
 	obs := app.RepoObservation{SubmodulesClean: true}
 
 	for _, line := range strings.Split(out, "\n") {
@@ -40,7 +36,7 @@ func parseStatus(out string) app.RepoObservation {
 		case strings.HasPrefix(line, "? "):
 			obs.Dirty.Untracked++
 		case strings.HasPrefix(line, "! "):
-			// Ignored files are not a change; git only lists them when asked to.
+			// Ignored files are not a change.
 		case strings.HasPrefix(line, "1 "), strings.HasPrefix(line, "2 "), strings.HasPrefix(line, "u "):
 			obs.Dirty.Tracked++
 			noteSubmodule(line, &obs)
@@ -80,12 +76,9 @@ func parseHeader(line string, obs *app.RepoObservation) {
 
 // noteSubmodule records whether a changed entry is a submodule that has drifted from its gitlink.
 //
-// The <sub> field is four characters: "N..." for an ordinary path, or "S<c><m><u>" for a
-// submodule, where c means the checked-out commit differs from the recorded gitlink, m means
-// modified content and u means untracked content.
-//
-// Any of the three makes the worktree disagree with what the repo has committed -- which is the
-// exact mismatch that makes a build's output not match its gitlinks (spec §7.2, §7.3).
+// The <sub> field is 4 chars: "N..." for a plain path, or "S<c><m><u>" for a submodule -- c=commit
+// differs from gitlink, m=modified content, u=untracked content. Any of the three means the
+// worktree disagrees with committed gitlinks (spec §7.2, §7.3).
 func noteSubmodule(line string, obs *app.RepoObservation) {
 	fields := strings.Fields(line)
 	if len(fields) < 3 {
@@ -113,9 +106,9 @@ func parseSigned(s string) int {
 
 // parseGitmodules reads a .gitmodules file into submodule entries.
 //
-// It is parsed directly rather than through `git config -f`: .gitmodules is a plain, committed
-// file, and reading it needs no subprocess. The URL is what identifies the dependency; the path
-// deliberately is not, since most dependents name the same submodule "proto" (spec §7.11).
+// Parsed directly (not via `git config -f`): .gitmodules is a plain committed file needing no
+// subprocess. The URL identifies the dependency; the path deliberately does not, since most
+// dependents name the same submodule "proto" (spec §7.11).
 func parseGitmodules(content string) []domain.Submodule {
 	var subs []domain.Submodule
 	var current *domain.Submodule
@@ -155,9 +148,8 @@ func parseGitmodules(content string) []domain.Submodule {
 		case "url":
 			current.URL = value
 		case "branch":
-			// The dependent's own statement about which line it tracks. It outranks every other
-			// baseline rule, because a repo pinned to the branch it declared is correct, not
-			// outdated (spec §7.11).
+			// The dependent's declared tracking line; outranks other baseline rules, since a repo
+			// pinned to the branch it declared is correct, not outdated (spec §7.11).
 			current.Branch = value
 		}
 	}
@@ -177,9 +169,8 @@ func sectionName(line string) (string, bool) {
 
 // parseLsTree extracts gitlink SHAs from `git ls-tree -r HEAD`, keyed by path.
 //
-// The gitlink is the commit a repo has committed for its submodule -- the pin itself. Reading it
-// from the tree rather than from the checked-out submodule matters: the worktree may be sitting on
-// something else entirely, and the pin is what other machines will get.
+// The gitlink is the committed pin, read from the tree not the worktree (see git.go Architecture
+// Note).
 func parseLsTree(out string) map[string]string {
 	pins := map[string]string{}
 	for _, line := range strings.Split(out, "\n") {

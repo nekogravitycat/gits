@@ -15,13 +15,13 @@ func configureProcessGroup(cmd *exec.Cmd) {
 
 // killProcessTree signals the child's entire process group.
 //
-// Killing only git would leave its ssh, credential helper and hook children alive, still holding
-// the pipes gits is waiting on -- so the timeout would not actually end anything.
+// CRITICAL: killing only git leaves its ssh/credential-helper/hook children alive holding gits'
+// pipes, so the timeout would not actually end anything (see runner.go Architecture Note).
 func killProcessTree(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
-	// The negative pid addresses the process group created above.
+	// Negative pid addresses the process group created above.
 	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
 		return cmd.Process.Kill()
 	}

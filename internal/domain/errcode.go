@@ -2,9 +2,8 @@ package domain
 
 // ErrCode is the stable, machine-readable reason a repo was skipped or failed.
 //
-// Codes are part of the public contract (spec §6.6): they appear verbatim in `--json` output and
-// in parentheses in human output. Agents branch on them, so a code's meaning must never change --
-// add a new code instead.
+// CRITICAL: codes are public contract (spec §6.6), appearing verbatim in --json and human output;
+// a code's meaning must never change -- add a new code instead.
 type ErrCode string
 
 const (
@@ -27,11 +26,8 @@ const (
 	ErrGit         ErrCode = "E_GIT"
 )
 
-// Retryable reports whether a caller that retries this operation has any chance of a different
-// outcome.
-//
-// This distinction is the whole point of having codes (spec §6.6): a network blip deserves a
-// retry, while an auth failure retried a hundred times only burns an agent's budget.
+// Retryable reports whether retrying could plausibly change the outcome (spec §6.6): a network
+// blip deserves a retry, an auth failure does not.
 func (c ErrCode) Retryable() bool {
 	switch c {
 	case ErrNetwork, ErrTimeout:

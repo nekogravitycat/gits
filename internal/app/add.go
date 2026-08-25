@@ -10,8 +10,7 @@ import (
 type AddOptions struct {
 	Repo domain.Repo
 
-	// Update permits changing an entry that already exists with different contents. Without it, a
-	// conflicting add is an error rather than a silent overwrite.
+	// Update permits overwriting an existing entry; without it a conflicting add is an error.
 	Update bool
 }
 
@@ -23,14 +22,11 @@ type AddResult struct {
 	NoOp    bool
 }
 
-// Add registers a single repo in the manifest (spec §7.9).
+// Add registers a single repo in the manifest (spec §7.9). Manifest-only; the checkout comes
+// later from `gits clone -r <name>`.
 //
-// This is the supported way for a script or an agent to extend the repo list. Editing gits.yaml
-// directly is not: an ordinary YAML round-trip erases comments, and the comments are where
-// "why is this repo no-write" is written down (spec §5.1).
-//
-// It writes the manifest and nothing else. The checkout comes later, from `gits clone -r <name>`,
-// which keeps a list edit cheap and reversible.
+// Why not edit gits.yaml directly: a YAML round-trip erases the comments that record why a repo is
+// no-write (spec §5.1).
 func Add(_ context.Context, env *Env, _ Global, opts AddOptions) (*AddResult, error) {
 	if opts.Repo.Name == "" {
 		return nil, Usagef(domain.ErrManifest, "add requires a repo name")
@@ -58,7 +54,7 @@ func Add(_ context.Context, env *Env, _ Global, opts AddOptions) (*AddResult, er
 		return nil, err
 	}
 
-	// Re-read so the reported entry shows resolved defaults rather than what was typed.
+	// Re-read so the reported entry shows resolved defaults, not what was typed.
 	m, err = env.LoadManifest()
 	if err != nil {
 		return nil, err
@@ -82,10 +78,8 @@ func Add(_ context.Context, env *Env, _ Global, opts AddOptions) (*AddResult, er
 	}, nil
 }
 
-// sameEntry reports whether an existing entry already says exactly what the caller is asking for.
-//
-// An identical add is a no-op with exit code 0, which is what lets an agent re-run its setup
-// steps without special-casing "already done" (spec §6.11).
+// sameEntry reports whether an existing entry already matches the requested add, making an
+// identical add a no-op with exit 0 so setup steps stay safe to re-run (spec §6.11).
 func sameEntry(a, b domain.Repo) bool {
 	if a.URL != b.URL || a.EffectivePath() != b.EffectivePath() || a.NoWrite != b.NoWrite {
 		return false

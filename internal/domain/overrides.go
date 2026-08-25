@@ -2,9 +2,9 @@ package domain
 
 import "fmt"
 
-// LocalOverrides is the parsed gits.local.yaml (spec §5.5): this machine's exceptions to the shared
-// list. It is deliberately not able to add repos -- a new repo always belongs in the shared
-// manifest, or pain point 3 (list drift) returns from the other direction.
+// LocalOverrides is the parsed gits.local.yaml (spec §5.5): this machine's exceptions to the
+// shared list. It deliberately cannot add repos -- a new repo belongs in the shared manifest, or
+// list drift (pain point 3) returns from the other direction.
 type LocalOverrides struct {
 	Version   int
 	Overrides []Override
@@ -15,23 +15,22 @@ type Override struct {
 	Name string
 	Line int
 
-	// Disabled removes the repo from every command on this machine. Crucially it also suppresses
-	// the "missing" report: an agent working in a partial checkout would otherwise see a false
-	// E_MISSING_DIR on every run and keep trying to "fix" it (spec §5.5).
+	// Disabled removes the repo from every command on this machine.
+	// CRITICAL: it also suppresses the "missing" report -- otherwise a partial checkout shows a
+	// false E_MISSING_DIR every run and an agent keeps trying to "fix" it (spec §5.5).
 	Disabled bool
 
 	// Path, when non-empty, relocates the checkout.
 	Path string
 
-	// NoWrite may only tighten the boundary. A local file cannot grant write access that the
-	// shared manifest withheld, so false here means "no opinion", not "allow writes".
+	// NoWrite may only tighten the boundary: a local file cannot grant write access the shared
+	// manifest withheld, so false means "no opinion", not "allow writes".
 	NoWrite bool
 }
 
 // Apply folds the overrides into the manifest in place.
-//
-// Every override must name an existing entry (spec §5.6); a typo that silently did nothing would
-// leave the user believing a repo was disabled when it was not.
+// CRITICAL: every override must name an existing entry (spec §5.6); a typo that silently did
+// nothing would leave the user believing a repo was disabled when it was not.
 func (m *Manifest) Apply(ov *LocalOverrides, file string) error {
 	if ov == nil {
 		return nil
@@ -77,7 +76,6 @@ func (m *Manifest) Apply(ov *LocalOverrides, file string) error {
 		}
 	}
 
-	// Re-validate: an override's path can collide with another entry or escape the workspace just
-	// as easily as a manifest one can.
+	// Re-validate: an override's path can collide or escape the workspace just like a manifest one.
 	return m.Validate(file)
 }
